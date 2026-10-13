@@ -1,0 +1,16 @@
+/* Self-hosted fonts (SIL Open Font License 1.1, see /fonts/LICENSE.txt).
+   Variable weights, subset to Latin plus the rupee sign and a few symbols. */
+@font-face {
+  font-family: 'Baloo 2';
+  font-style: normal;
+  font-weight: 500 800;
+  font-display: swap;
+  src: url('/fonts/baloo2.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/inter.woff2') format('woff2');
+}

@@ -1,0 +1,4 @@
+Baloo 2 (Ek Type) and Inter (Rasmus Andersson) are licensed under the
+SIL Open Font License, Version 1.1: https://openfontlicense.org
+The files here are subsets made with the Google Fonts API (Latin, plus ₹ and
+a few punctuation and arrow symbols).

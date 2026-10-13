@@ -1,3 +1,8 @@
+/* UMD: CommonJS in Node (require), window.RR.board in the browser, no build step. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else (root.RR = root.RR || {}).board = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
 /**
@@ -199,6 +204,22 @@ function gridPosition(index) {
   return { row: 1 + (index - 30), col: 11 };
 }
 
+/**
+ * Net worth for standings and stats: cash (never below zero) plus what the
+ * player's tiles and buildings cost. A mortgaged tile counts at its price
+ * minus the mortgage.
+ */
+function netWorth(player, properties) {
+  let worth = Math.max(0, player.cash);
+  for (const tile of BOARD) {
+    const prop = properties[tile.id];
+    if (!prop || prop.ownerId !== player.id) continue;
+    worth += prop.mortgaged ? tile.price - tile.mortgageValue : tile.price;
+    worth += prop.buildings * (tile.houseCost || 0);
+  }
+  return worth;
+}
+
 /** Which edge a tile sits on, useful for rotating labels in the UI. */
 function boardSide(index) {
   if (index % 10 === 0) return 'corner';
@@ -208,7 +229,7 @@ function boardSide(index) {
   return 'right';
 }
 
-module.exports = {
+return {
   BOARD_SIZE,
   TILE,
   COLOR_GROUPS,
@@ -230,4 +251,6 @@ module.exports = {
   nearestAhead,
   gridPosition,
   boardSide,
+  netWorth,
 };
+});

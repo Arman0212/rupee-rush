@@ -1,3 +1,8 @@
+/* UMD: CommonJS in Node (require), window.RR.cards in the browser, no build step. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else (root.RR = root.RR || {}).cards = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
 /**
@@ -67,4 +72,5 @@ function getCard(deck, id) {
   return DECKS[deck].find((c) => c.id === id);
 }
 
-module.exports = { SURPRISE_CARDS, TREASURE_CARDS, DECKS, getCard };
+return { SURPRISE_CARDS, TREASURE_CARDS, DECKS, getCard };
+});

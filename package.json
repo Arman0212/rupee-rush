@@ -10,16 +10,19 @@
     "validate": "node scripts/validate-board.js",
     "test": "node --test",
     "simulate": "node scripts/simulate.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "ui-check": "node scripts/ui-check.js",
+    "images": "node scripts/make-images.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "express": "^5.3.0",
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "playwright": "^1.64.0",
     "socket.io-client": "^4.8.4"
   }
 }

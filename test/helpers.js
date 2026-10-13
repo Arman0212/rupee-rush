@@ -22,10 +22,11 @@ function riggedDice(...rolls) {
 
 /**
  * A started game with players p1..pN seated in order, p1 to move, all on GO
- * with the starting cash. `dice` is a list of [d1, d2] pairs.
+ * with the starting cash. `dice` is a list of [d1, d2] pairs. Auctions are off
+ * unless a test turns them on, so "decline" leaves a tile unowned.
  */
 function setup({ players = 2, settings = {}, dice = [] } = {}) {
-  const game = new Game({ settings, seed: 42, now: () => 1000 });
+  const game = new Game({ settings: { auctions: false, ...settings }, seed: 42, now: () => 1000 });
   for (let i = 1; i <= players; i++) game.addPlayer({ id: `p${i}`, name: `P${i}` });
   game.start();
   game.state.players.sort((a, b) => a.id.localeCompare(b.id));

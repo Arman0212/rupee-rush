@@ -38,6 +38,27 @@ const flatObject = ({ maxKeys }) => (v) => {
   return entries.every(([, x]) => primitive(x)) ? null : 'must only contain strings, numbers and booleans';
 };
 
+/** A list of short strings. */
+const stringList = ({ max }) => (v) => {
+  if (!Array.isArray(v)) return 'must be a list';
+  if (v.length > max) return `must have at most ${max} items`;
+  return v.every((x) => typeof x === 'string' && x.length <= 64) ? null : 'must only contain short strings';
+};
+
+/** One side of a trade: { tileIds?, cash?, jailCards? } and nothing else. */
+const offer = () => {
+  const fields = { tileIds: stringList({ max: 40 }), cash: int({ min: 0, max: 1e7 }), jailCards: stringList({ max: 4 }) };
+  return (v) => {
+    if (!isPlainObject(v)) return 'must be an object';
+    for (const key of Object.keys(v)) {
+      if (!fields[key]) return `has an unknown field "${key}"`;
+      const error = fields[key](v[key]);
+      if (error) return `${key} ${error}`;
+    }
+    return null;
+  };
+};
+
 /** Marks a check as optional: undefined passes, anything else must satisfy it. */
 const optional = (check) => Object.assign((v) => (v === undefined ? null : check(v)), { optional: true });
 
@@ -55,7 +76,16 @@ const SCHEMAS = Object.freeze({
   kick: { playerId: str({ min: 1, max: 64 }) },
   startGame: {},
   playAgain: {},
-  action: { type: str({ min: 1, max: 32 }), tileId: optional(str({ max: 64 })), amount: optional(int({ min: 0, max: 1e7 })) },
+  action: {
+    type: str({ min: 1, max: 32 }),
+    tileId: optional(str({ max: 64 })),
+    amount: optional(int({ min: 0, max: 1e7 })),
+    // Trades
+    toId: optional(str({ max: 64 })),
+    tradeId: optional(str({ max: 32 })),
+    give: optional(offer()),
+    get: optional(offer()),
+  },
   chat: { text: str({ max: 2000 }) },
 });
 

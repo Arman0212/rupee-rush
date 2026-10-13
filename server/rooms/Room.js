@@ -23,6 +23,7 @@
 const crypto = require('node:crypto');
 const { Game, PHASE } = require('../game/Game');
 const { ROOM, PLAYER_COLORS, sanitizeSettings } = require('../../shared/rules');
+const { getTileById } = require('../../shared/board');
 const { RateLimiter } = require('../net/rateLimit');
 const { cleanName, cleanText } = require('../net/validate');
 
@@ -32,9 +33,12 @@ const STATUS = Object.freeze({ LOBBY: 'lobby', PLAYING: 'playing', FINISHED: 'fi
 const AWAY_GRACE_MS = 60_000;
 const CHAT_HISTORY = 100;
 const CHAT_RATE = { limit: 5, windowMs: 5000 };
-/** When the turn timer expires, the first of these that is legal gets played. */
+/** When the turn timer expires (and the player is solvent), the first of these that is legal gets played. */
 const AUTOPLAY_ORDER = ['roll', 'decline', 'endTurn'];
-const MAX_AUTOPLAY_STEPS = 50;
+/** Enough for a full liquidation (22 cities × 5 buildings + 28 mortgages) plus the rest of the turn. */
+const MAX_AUTOPLAY_STEPS = 300;
+/** After an auction, a paused turn timer resumes with at least this much time left. */
+const RESUME_MIN_MS = 5000;
 const ACTIVE_PHASES = new Set([PHASE.AWAITING_ROLL, PHASE.BUY_DECISION, PHASE.AWAITING_END]);
 
 const REAL_CLOCK = Object.freeze({
@@ -53,6 +57,9 @@ class Room {
   #seats = new Map();
   #awayTimers = new Map(); // seat id -> timer handle
   #turnTimer = null; // { key, mode, deadline, handle }
+  #pausedTurn = null; // { key, mode, remaining } while an auction runs
+  #resumeAutoplay = null; // turn key whose timed-out auto-play an auction interrupted
+  #auctionTimer = null; // { auction, endsAt, handle }
   #chatLimiter;
 
   /**
@@ -127,8 +134,7 @@ class Room {
     this.#clearAwayTimer(seat.id);
     this.transport.attach(this.code, socketId);
     this.#sendChatHistory(socketId);
-    this.#syncTurnTimer();
-    this.#broadcast([this.#roomEvent('seatReconnected', { playerId: seat.id })]);
+    this.#afterChange([this.#roomEvent('seatReconnected', { playerId: seat.id })]);
     return ok({ code: this.code, playerId: seat.id, token: seat.token, reconnected: true });
   }
 
@@ -140,8 +146,7 @@ class Room {
     seat.connected = false;
     seat.disconnectedAt = this.clock.now();
     this.#startAwayTimer(seat);
-    this.#syncTurnTimer();
-    this.#broadcast([this.#roomEvent('seatDisconnected', { playerId: seat.id })]);
+    this.#afterChange([this.#roomEvent('seatDisconnected', { playerId: seat.id })]);
   }
 
   /** Leave on purpose. Mid-game this is bankruptcy to the bank. */
@@ -225,6 +230,7 @@ class Room {
     this.game = null;
     this.status = STATUS.LOBBY;
     this.#clearTurnTimer();
+    this.#clearAuctionTimer();
     // Seats that went quiet long ago would have been dropped by a lobby; do it now.
     const now = this.clock.now();
     for (const seat of [...this.#seats.values()]) {
@@ -249,12 +255,14 @@ class Room {
     return ok({ version: this.version });
   }
 
-  /** After the game changed: settle the room status and timers, then tell everyone. */
+  /** After anything changed: auto-pass absent bidders, settle status and timers, then tell everyone. */
   #afterChange(events) {
+    const all = [...events, ...this.#autoPassAbsent()];
     const gameOver = this.status === STATUS.PLAYING && this.game.state.phase === PHASE.GAME_OVER;
     if (gameOver) this.status = STATUS.FINISHED;
+    this.#syncAuctionTimer(all);
     this.#syncTurnTimer();
-    this.#broadcast(events);
+    this.#broadcast(all);
     if (gameOver) {
       const winner = this.game.state.players.find((p) => p.id === this.game.state.winnerId);
       this.transport.toRoom(this.code, 'gameOver', { winnerId: winner ? winner.id : null, name: winner ? winner.name : null });
@@ -273,13 +281,29 @@ class Room {
    * the game can't stall on them.
    */
   #syncTurnTimer() {
+    // An auction pauses the turn timer; it resumes for the same turn afterwards.
+    if (this.status === STATUS.PLAYING && this.game.state.phase === PHASE.AUCTION) {
+      if (this.#turnTimer) {
+        const { key, mode, deadline } = this.#turnTimer;
+        this.#pausedTurn = { key, mode, remaining: Math.max(0, deadline - this.clock.now()) };
+        this.#clearTurnTimer();
+      }
+      return;
+    }
     const want = this.#wantedTurnTimer();
     const current = this.#turnTimer;
     if (current && want && current.key === want.key && current.mode === want.mode) return;
     this.#clearTurnTimer();
+    let ms = want ? want.ms : 0;
+    if (want && this.#resumeAutoplay === want.key) ms = 0; // finish the timed-out turn straight away
+    else if (want && this.#pausedTurn && this.#pausedTurn.key === want.key && this.#pausedTurn.mode === want.mode) {
+      ms = Math.max(this.#pausedTurn.remaining, RESUME_MIN_MS);
+    }
+    this.#pausedTurn = null;
+    this.#resumeAutoplay = null;
     if (!want) return;
-    const handle = this.clock.setTimeout(() => this.#onTurnTimeout(), want.ms);
-    this.#turnTimer = { ...want, deadline: this.clock.now() + want.ms, handle };
+    const handle = this.clock.setTimeout(() => this.#onTurnTimeout(), ms);
+    this.#turnTimer = { ...want, deadline: this.clock.now() + ms, handle };
   }
 
   #wantedTurnTimer() {
@@ -305,8 +329,8 @@ class Room {
     const state = this.game.state;
     const { currentPlayerId: playerId, turnNumber } = state;
     const events = [this.#roomEvent('turnTimedOut', { playerId })];
-    const sameTurn = () => state.phase !== PHASE.GAME_OVER && this.game.state.currentPlayerId === playerId
-      && this.game.state.turnNumber === turnNumber;
+    const sameTurn = () => ![PHASE.GAME_OVER, PHASE.AUCTION].includes(this.game.state.phase)
+      && this.game.state.currentPlayerId === playerId && this.game.state.turnNumber === turnNumber;
 
     for (let step = 0; step < MAX_AUTOPLAY_STEPS && sameTurn(); step++) {
       const action = this.#autoAction(playerId);
@@ -321,21 +345,96 @@ class Room {
       }
       events.push(...result.events);
     }
+    // Declining may have started an auction: carry on with this turn once it closes.
+    if (this.game.state.phase === PHASE.AUCTION) this.#resumeAutoplay = `${turnNumber}:${playerId}`;
     this.#afterChange(events);
   }
 
   /**
-   * Roll, then decline, then end the turn. Selling and mortgaging are never
-   * done on a player's behalf, so a player in debt (who can't roll or end the
-   * turn) is declared bankrupt.
+   * The next action to play for a player whose time ran out. A player in debt
+   * first raises cash (see #liquidationAction) and is declared bankrupt only
+   * if that can't clear the debt. A solvent player rolls, then declines, then
+   * ends the turn. The server never buys on a player's behalf.
    */
   #autoAction(playerId) {
     const legal = this.game.getLegalActions(playerId);
+    const player = this.game.state.players.find((p) => p.id === playerId);
+    if (player && player.cash < 0) {
+      return Room.#liquidationAction(legal) || legal.find((a) => a.type === 'bankrupt') || null;
+    }
     for (const type of AUTOPLAY_ORDER) {
       const action = legal.find((a) => a.type === type);
       if (action) return action;
     }
-    return legal.find((a) => a.type === 'bankrupt') || null;
+    return null;
+  }
+
+  /**
+   * One step of raising cash, using only legal actions. Mortgaging loses less
+   * than selling buildings at half price, so: mortgage the cheapest tile that
+   * can be mortgaged (its set has no buildings); otherwise sell a building
+   * from the cheapest set (the engine only allows even selling). Clearing a
+   * set makes its tiles mortgageable, so they go next. Ties go to the earlier
+   * board position. Called one step at a time, so it stops as soon as the
+   * debt is cleared.
+   */
+  static #liquidationAction(legal) {
+    const cheapestBy = (cost) => (a, b) => {
+      const [ta, tb] = [getTileById(a.tileId), getTileById(b.tileId)];
+      return cost(ta) - cost(tb) || ta.index - tb.index;
+    };
+    const mortgages = legal.filter((a) => a.type === 'mortgage').sort(cheapestBy((t) => t.price));
+    if (mortgages.length) return mortgages[0];
+    const sells = legal.filter((a) => a.type === 'sellHouse').sort(cheapestBy((t) => t.houseCost));
+    return sells[0] || null;
+  }
+
+  // =========================================================================
+  // Auctions
+  // =========================================================================
+
+  /**
+   * One timer per auction, settings.auctionSeconds long, restarted by every
+   * valid bid. When it fires the server closes the auction.
+   */
+  #syncAuctionTimer(events) {
+    const auction = this.status === STATUS.PLAYING ? this.game.state.auction : null;
+    if (!auction) {
+      this.#clearAuctionTimer();
+      return;
+    }
+    const bid = events.some((e) => e.type === 'bidPlaced');
+    if (this.#auctionTimer && this.#auctionTimer.auction === auction && !bid) return;
+    this.#clearAuctionTimer();
+    const ms = this.settings.auctionSeconds * 1000;
+    const handle = this.clock.setTimeout(() => this.#onAuctionTimeout(), ms);
+    this.#auctionTimer = { auction, endsAt: this.clock.now() + ms, handle };
+  }
+
+  #clearAuctionTimer() {
+    if (this.#auctionTimer) this.clock.clearTimeout(this.#auctionTimer.handle);
+    this.#auctionTimer = null;
+  }
+
+  #onAuctionTimeout() {
+    this.#auctionTimer = null;
+    if (this.closed || this.status !== STATUS.PLAYING || !this.game.state.auction) return;
+    const result = this.game.closeAuction();
+    if (result.ok) this.#afterChange(result.events);
+  }
+
+  /** Disconnected players count as having passed (the high bidder keeps their bid). */
+  #autoPassAbsent() {
+    const events = [];
+    while (this.status === STATUS.PLAYING && this.game.state.auction) {
+      const { bidders, highBidderId } = this.game.state.auction;
+      const absent = bidders.find((id) => id !== highBidderId && !(this.#seats.get(id) && this.#seats.get(id).connected));
+      if (!absent) break;
+      const result = this.game.dispatch(absent, { type: 'pass' });
+      if (!result.ok) break;
+      events.push(...result.events);
+    }
+    return events;
   }
 
   // =========================================================================
@@ -408,10 +507,13 @@ class Room {
   #broadcast(events = []) {
     if (this.closed) return;
     this.version += 1;
+    const publicState = this.game ? this.game.publicState() : null;
+    if (publicState && publicState.auction) publicState.auction.endsAt = this.#auctionTimer ? this.#auctionTimer.endsAt : null;
     this.transport.toRoom(this.code, 'state', {
       version: this.version,
+      serverNow: this.clock.now(), // clients correct their clock with this for countdowns
       room: this.publicRoom(),
-      publicState: this.game ? this.game.publicState() : null,
+      publicState,
       events,
       deadline: this.turnDeadline,
     });
@@ -534,6 +636,7 @@ class Room {
   dispose(reason = 'closed') {
     if (this.closed) return;
     this.#clearTurnTimer();
+    this.#clearAuctionTimer();
     for (const id of [...this.#awayTimers.keys()]) this.#clearAwayTimer(id);
     for (const seat of this.#seats.values()) {
       if (seat.socketId) this.transport.detach(this.code, seat.socketId, 'roomClosed', { code: this.code, reason });

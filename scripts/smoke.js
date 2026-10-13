@@ -61,10 +61,10 @@ class Client {
   }
 
   /** Resolve once `predicate()` is true (checked after every incoming event). */
-  until(predicate, what) {
+  until(predicate, what, ms = WAIT_MS) {
     if (predicate()) return Promise.resolve();
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`${this.label}: timed out waiting for ${what}`)), WAIT_MS);
+      const timer = setTimeout(() => reject(new Error(`${this.label}: timed out waiting for ${what}`)), ms);
       this.waiters.push(() => {
         if (!predicate()) return false;
         clearTimeout(timer);
@@ -121,7 +121,7 @@ async function run() {
     assert.deepEqual(health, { ok: true, rooms: 0, players: 0 });
     const invitePage = await fetch(`${url}/r/ABCDEF`);
     assert.equal(invitePage.status, 200);
-    assert.match(await invitePage.text(), /debug\.js/);
+    assert.match(await invitePage.text(), /\/js\/main\.js/);
     step('HTTP: /health and /r/:code');
 
     // --- Create, list, join ---------------------------------------------------
@@ -150,7 +150,7 @@ async function run() {
 
     // --- Lobby: settings, colours, chat ---------------------------------------
     assert.equal((await clients[1].call('updateSettings', { settings: { goSalary: 0 } })).error, 'only the host can do that');
-    const settings = await host.call('updateSettings', { settings: { startingCash: 500, goSalary: 0 } });
+    const settings = await host.call('updateSettings', { settings: { startingCash: 500, goSalary: 0, auctionSeconds: 5 } });
     assert.ok(settings.ok);
     for (const [i, c] of clients.entries()) assert.ok((await c.call('pickColor', { color: PLAYER_COLORS[7 - i] })).ok);
     assert.equal((await clients[1].call('pickColor', { color: PLAYER_COLORS[7] })).error, 'colour already taken');
@@ -173,7 +173,8 @@ async function run() {
     // --- Robustness ------------------------------------------------------------------
     assert.equal((await host.call('action', 'roll')).ok, false);
     assert.equal((await host.call('action', { type: 42 })).ok, false);
-    assert.equal((await host.call('action', { type: 'trade' })).error, 'not implemented');
+    assert.equal((await host.call('action', { type: 'chat' })).error, 'not implemented');
+    assert.equal((await host.call('action', { type: 'proposeTrade', give: { evil: 1 } })).ok, false);
     host.socket.emit('noSuchEvent', { x: 1 }); // ignored
     host.socket.emit('action', { type: 'roll' }); // no ack callback: must not crash
     await sleep(50);
@@ -188,6 +189,7 @@ async function run() {
 
     // Wait for everyone to be in step before the first move.
     await settle(Math.max(...clients.map((c) => c.lastVersion)));
+    await auctionAndTradeScenario();
 
     while (host.state.room.status === 'playing' && host.state.publicState.turnNumber <= TURN_CAP) {
       const ps = host.state.publicState;
@@ -208,7 +210,15 @@ async function run() {
         continue;
       }
 
-      const actor = [current, ...clients].find((c) => c.you && c.you.legalActions.length);
+      const actor = [current, ...clients].find((c) => c && c.you && c.you.legalActions.length);
+      if (!actor) {
+        // Nobody can act: only the server's auction timer can move things on.
+        assert.equal(ps.phase, 'auction', `nobody can act in phase ${ps.phase}`);
+        const seen = host.lastVersion;
+        await host.until(() => host.lastVersion > seen, 'the auction timer', 8000);
+        await settle(host.lastVersion);
+        continue;
+      }
       const enginePlayer = ps.players.find((p) => p.id === actor.playerId);
       const action = chooseAction(actor.you.legalActions, enginePlayer.cash < 0);
       let r = await actor.call('action', action);
@@ -249,6 +259,54 @@ async function run() {
   } finally {
     for (const c of allClients) c.socket.disconnect();
     await server.close();
+  }
+
+  /**
+   * One auction and one accepted trade, all over the sockets. The only staged
+   * step: the server-side game is put at "current player may buy Nagpur".
+   */
+  async function auctionAndTradeScenario() {
+    const host = clients[0];
+    const room = server.manager.get(host.state.room.code);
+    const s = room.game.state;
+    Object.assign(s.turn, { pendingTileId: 'nagpur', dice: [2, 4], canRollAgain: false });
+    s.phase = 'buyDecision';
+    const byId = (id) => clients.find((c) => c.playerId === id);
+    const seller = byId(s.currentPlayerId);
+    const [bidder, other] = clients.filter((c) => c !== seller);
+
+    // Decline → auction for everyone, with a server deadline.
+    let r = await seller.call('action', { type: 'decline' });
+    assert.ok(r.ok, r.error);
+    await settle(r.version);
+    assert.equal(bidder.state.publicState.auction.tileId, 'nagpur');
+    assert.ok(bidder.state.publicState.auction.endsAt > bidder.state.serverNow);
+    r = await bidder.call('action', { type: 'bid', amount: 60 });
+    assert.ok(r.ok, r.error);
+    assert.equal((await other.call('action', { type: 'bid', amount: 60 })).error, 'bid at least ₹61');
+    for (const c of clients.filter((x) => x !== bidder)) {
+      r = await c.call('action', { type: 'pass' });
+      assert.ok(r.ok, `${c.label} pass: ${r.error}`);
+    }
+    await settle(r.version);
+    assert.equal(host.state.publicState.auction, null);
+    assert.equal(host.state.publicState.properties.nagpur.ownerId, bidder.playerId);
+    assert.ok(host.received('state').some((st) => st.events.some((e) => e.type === 'auctionClosed' && e.amount === 60)));
+    step(`auction over sockets: ${bidder.label} won Nagpur for ₹60 after the others passed`);
+
+    // A trade: `other` offers ₹90 for Nagpur, `bidder` accepts.
+    r = await other.call('action', { type: 'proposeTrade', toId: bidder.playerId, give: { cash: 90 }, get: { tileIds: ['nagpur'] } });
+    assert.ok(r.ok, r.error);
+    await settle(r.version);
+    const trade = bidder.state.publicState.trades[0];
+    assert.ok(bidder.you.legalActions.some((a) => a.type === 'acceptTrade' && a.tradeId === trade.id));
+    assert.equal((await other.call('action', { type: 'acceptTrade', tradeId: trade.id })).ok, false, 'the proposer cannot accept');
+    r = await bidder.call('action', { type: 'acceptTrade', tradeId: trade.id });
+    assert.ok(r.ok, r.error);
+    await settle(r.version);
+    assert.equal(host.state.publicState.properties.nagpur.ownerId, other.playerId);
+    assert.deepEqual(host.state.publicState.trades, []);
+    step(`trade over sockets: ${other.label} bought Nagpur from ${bidder.label} for ₹90`);
   }
 
   // Disconnect a non-host mid-game, reconnect with its token, then take over from a second tab.

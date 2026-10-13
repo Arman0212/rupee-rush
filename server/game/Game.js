@@ -33,22 +33,38 @@
  *   propertyBought, purchaseDeclined, built, houseSold, mortgaged, unmortgaged,
  *   cardDrawn, sentToJail, leftJail, jailRollFailed, debtIncurred, debtPaid,
  *   debtCleared, debtForgiven, propertyTransferred, propertyReturned,
- *   bankrupt, gameOver.
+ *   bankrupt, gameOver, auctionStarted, bidPlaced, auctionPassed,
+ *   auctionClosed, tradeProposed, tradeAccepted, tradeDeclined,
+ *   tradeCancelled, tradePayment, mortgageFee.
+ *
+ * Auctions
+ *   With settings.auctions on, declining a purchase puts the tile up for
+ *   auction (phase 'auction'). Players bid or pass; the auction ends early
+ *   once everyone but the high bidder has passed, otherwise when the server
+ *   calls closeAuction() (its timer). Nothing else can happen meanwhile.
+ *
+ * Trades
+ *   Open trades live in state.trades and are re-checked after every change:
+ *   any trade that is no longer valid is cancelled with a reason, so an open
+ *   trade can always be accepted (subject to the mortgage transfer fee).
  */
 
 const board = require('../../shared/board');
 const { DECKS, getCard } = require('../../shared/cards');
 const rules = require('../../shared/rules');
 const { createRng, randomSeed, randomInt, shuffle } = require('./rng');
-const { ACTIONS, NOT_IMPLEMENTED, TILE_ACTIONS, PHASE, BANK, JACKPOT } = require('./actions');
+const { ACTIONS, NOT_IMPLEMENTED, AUCTION_ACTIONS, TILE_ACTIONS, PHASE, BANK, JACKPOT } = require('./actions');
+const trades = require('./trades');
 
 const { BOARD, BOARD_SIZE, TILE, AIRPORT_RENT, UTILITY_MULTIPLIER, MAX_BUILDINGS, JAIL_INDEX } = board;
-const { JAIL, DICE, BUILDING, ROOM, PLAYER_COLORS } = rules;
+const { JAIL, DICE, BUILDING, ROOM, PLAYER_COLORS, AUCTION, TRADE, formatRupees } = rules;
 
 const STATE_VERSION = 1;
 const MAX_ID_LENGTH = 64;
 const ACTIVE_PHASES = [PHASE.AWAITING_ROLL, PHASE.BUY_DECISION, PHASE.AWAITING_END];
 const OWNABLE_TILES = BOARD.filter(board.isOwnable);
+/** Net-worth snapshots kept for the end-of-game chart; older ones are thinned out beyond this. */
+const MAX_WORTH_POINTS = 60;
 
 /** Actions that take no arguments, in the order getLegalActions lists them. */
 const SIMPLE_ACTIONS = [
@@ -110,7 +126,16 @@ class Game {
       jackpot: 0,
       turn: Game.#freshTurn(),
       lastCard: null,
+      auction: null, // { tileId, highBid, highBidderId, bidders, startedBy }
+      trades: [], // open trades only
+      tradeSeq: 0,
+      stats: Game.#freshStats(),
     };
+  }
+
+  /** End-of-game stats: net worth over time, landings per tile, biggest single rent. */
+  static #freshStats() {
+    return { worthEvery: 1, worth: [], landings: new Array(BOARD_SIZE).fill(0), biggestRent: null };
   }
 
   /** Per-turn scratch state, reset whenever a new turn begins. */
@@ -156,6 +181,15 @@ class Game {
     return this.#candidateActions(player).filter((a) => !this.#checkAction(player, a));
   }
 
+  /**
+   * End the running auction: the high bidder pays the bank and takes the
+   * tile; with no bids it stays unowned. Called by the server's auction timer,
+   * never by a client.
+   */
+  closeAuction() {
+    return this.#run(() => (this.state.auction ? null : 'no auction is running'), () => this.#finishAuction());
+  }
+
   /** Full state for saving, including the hidden deck order and the rng state. */
   toJSON() {
     const rngState = typeof this.rng.getState === 'function' ? this.rng.getState() : null;
@@ -174,6 +208,11 @@ class Game {
       if (rngState != null) restoredRng.setState(rngState);
     }
     const game = new Game({ settings: state.settings, rng: restoredRng, now });
+    // Saves from before auctions, trades and stats existed.
+    state.auction ??= null;
+    state.trades ??= [];
+    state.tradeSeq ??= 0;
+    state.stats ??= Game.#freshStats();
     game.state = state;
     return game;
   }
@@ -183,9 +222,11 @@ class Game {
    * seed / rng state, either of which would let a client predict dice and cards.
    */
   publicState() {
-    const { seed, decks, ...visible } = cloneData(this.state);
+    const { seed, decks, stats, ...visible } = cloneData(this.state);
     return {
       ...visible,
+      // Stats only matter at the end, so they don't ride along on every broadcast.
+      stats: this.state.phase === PHASE.GAME_OVER ? stats : null,
       decks: { surprise: { remaining: decks.surprise.length }, treasure: { remaining: decks.treasure.length } },
     };
   }
@@ -200,6 +241,7 @@ class Game {
     if (error) return fail(error);
     this.#events = [];
     apply();
+    if (this.state.trades.length) this.#sweepTrades();
     const events = this.#events;
     this.#events = [];
     return ok(events);
@@ -222,6 +264,13 @@ class Game {
     [ACTIONS.PAY_JAIL_FINE]: { check: (g, p) => g.#checkPayJailFine(p), run: (g, p) => g.#doPayJailFine(p) },
     [ACTIONS.USE_JAIL_CARD]: { check: (g, p) => g.#checkUseJailCard(p), run: (g, p) => g.#doUseJailCard(p) },
     [ACTIONS.BANKRUPT]: { check: (g, p) => g.#checkBankrupt(p), run: (g, p) => g.#declareBankruptcy(p, 'debt') },
+    [ACTIONS.BID]: { check: (g, p, a) => g.#checkBid(p, a), run: (g, p, a) => g.#doBid(p, a) },
+    [ACTIONS.PASS]: { check: (g, p) => g.#checkPass(p), run: (g, p) => g.#doPass(p) },
+    [ACTIONS.PROPOSE_TRADE]: { check: (g, p, a) => g.#checkProposeTrade(p, a), run: (g, p, a) => g.#doProposeTrade(p, a) },
+    [ACTIONS.ACCEPT_TRADE]: { check: (g, p, a) => g.#checkAcceptTrade(p, a), run: (g, p, a) => g.#doAcceptTrade(p, a) },
+    [ACTIONS.DECLINE_TRADE]: { check: (g, p, a) => g.#checkRecipient(p, a), run: (g, p, a) => g.#doDeclineTrade(p, a) },
+    [ACTIONS.CANCEL_TRADE]: { check: (g, p, a) => g.#checkProposer(p, a), run: (g, p, a) => g.#doCancelTrade(p, a) },
+    [ACTIONS.COUNTER_TRADE]: { check: (g, p, a) => g.#checkCounterTrade(p, a), run: (g, p, a) => g.#doCounterTrade(p, a) },
   };
 
   /** Checks shared by every action, then the action's own check. */
@@ -230,6 +279,7 @@ class Game {
     if (this.state.phase === PHASE.LOBBY) return 'game has not started';
     if (this.state.phase === PHASE.GAME_OVER) return 'game is over';
     if (player.bankrupt) return 'you are bankrupt';
+    if (this.state.phase === PHASE.AUCTION && !AUCTION_ACTIONS.has(action.type)) return 'not while an auction is running';
     return Game.#HANDLERS[action.type].check(this, player, action);
   }
 
@@ -239,6 +289,15 @@ class Game {
     for (const tile of OWNABLE_TILES) {
       if (this.state.properties[tile.id].ownerId !== player.id) continue;
       for (const type of TILE_ACTIONS) list.push({ type, tileId: tile.id });
+    }
+    // Bids carry an amount; the legal one offered is the minimum.
+    if (this.state.auction) list.push({ type: ACTIONS.BID, amount: this.#minBid() }, { type: ACTIONS.PASS });
+    // proposeTrade needs an offer, so it can't be enumerated; replies to open trades can.
+    for (const t of this.state.trades) {
+      if (t.toId === player.id) {
+        for (const type of [ACTIONS.ACCEPT_TRADE, ACTIONS.DECLINE_TRADE, ACTIONS.COUNTER_TRADE]) list.push({ type, tradeId: t.id });
+      }
+      if (t.fromId === player.id) list.push({ type: ACTIONS.CANCEL_TRADE, tradeId: t.id });
     }
     return list;
   }
@@ -345,9 +404,11 @@ class Game {
     const s = this.state;
     s.currentPlayerId = player.id;
     s.turnNumber += 1;
-    s.phase = PHASE.AWAITING_ROLL;
+    // A turn can pass mid-auction (the turn player went bankrupt); the auction carries on.
+    s.phase = s.auction ? PHASE.AUCTION : PHASE.AWAITING_ROLL;
     s.turn = Game.#freshTurn();
     player.doublesCount = 0;
+    this.#recordWorth(false);
     this.#emit('turnStarted', { playerId: player.id, turnNumber: s.turnNumber });
   }
 
@@ -362,12 +423,12 @@ class Game {
     return null;
   }
 
-  /** After a roll or a buy decision resolves, decide what the current player does next. */
+  /** After a roll, a buy decision or an auction resolves, decide what the current player does next. */
   #settlePhase() {
     const s = this.state;
-    if (s.phase === PHASE.GAME_OVER) return;
+    if (s.phase === PHASE.GAME_OVER || s.auction) return;
     if (s.turn.pendingTileId) s.phase = PHASE.BUY_DECISION;
-    else if (s.turn.canRollAgain) s.phase = PHASE.AWAITING_ROLL;
+    else if (s.turn.canRollAgain || !s.turn.dice) s.phase = PHASE.AWAITING_ROLL; // no dice yet: a fresh turn
     else s.phase = PHASE.AWAITING_END;
   }
 
@@ -427,6 +488,7 @@ class Game {
     const from = p.position;
     const passedGo = from + steps >= BOARD_SIZE;
     p.position = (from + steps) % BOARD_SIZE;
+    this.state.stats.landings[p.position] += 1;
     this.#emit('moved', { playerId: p.id, from, to: p.position, passedGo });
     if (passedGo && collectGo) {
       this.#transfer(BANK, p.id, this.state.settings.goSalary, 'moneyCollected', { reason: 'goSalary' });
@@ -441,6 +503,7 @@ class Game {
   #stepBack(p, steps) {
     const from = p.position;
     p.position = (((from - steps) % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    this.state.stats.landings[p.position] += 1;
     this.#emit('moved', { playerId: p.id, from, to: p.position, passedGo: false });
   }
 
@@ -492,6 +555,10 @@ class Game {
     // The "nearest utility" card rolls fresh dice for the rent.
     const diceTotal = tile.type === TILE.UTILITY && ctx.utilityMultiplier ? this.#rollDice('utilityCard').total : ctx.diceTotal;
     const amount = this.#rentFor(tile, { ...ctx, diceTotal });
+    const best = this.state.stats.biggestRent;
+    if (amount > 0 && (!best || amount > best.amount)) {
+      this.state.stats.biggestRent = { amount, from: p.id, to: owner.id, tileId: tile.id, turnNumber: this.state.turnNumber };
+    }
     this.#transfer(p.id, owner.id, amount, 'rentPaid', { tileId: tile.id });
   }
 
@@ -531,10 +598,12 @@ class Game {
     return this.#checkTurn(p, PHASE.BUY_DECISION);
   }
 
-  /** Without auctions (a later phase) a declined tile simply stays unowned. */
+  /** Declining puts the tile up for auction when auctions are on; otherwise it stays unowned. */
   #doDecline(p) {
-    this.#emit('purchaseDeclined', { playerId: p.id, tileId: this.state.turn.pendingTileId });
+    const tileId = this.state.turn.pendingTileId;
+    this.#emit('purchaseDeclined', { playerId: p.id, tileId });
     this.state.turn.pendingTileId = null;
+    if (this.state.settings.auctions) this.#startAuction(tileId, p.id);
     this.#settlePhase();
   }
 
@@ -660,6 +729,7 @@ class Game {
 
   #sendToJail(p, reason) {
     p.position = JAIL_INDEX;
+    this.state.stats.landings[JAIL_INDEX] += 1;
     p.inJail = true;
     p.jailTurns = 0;
     p.doublesCount = 0;
@@ -870,11 +940,14 @@ class Game {
     p.inJail = false;
     p.jailTurns = 0;
     p.doublesCount = 0;
+    this.#leaveAuction(p);
     this.#emit('bankrupt', { playerId: p.id, creditorId, reason });
 
     const survivors = this.state.players.filter((o) => !o.bankrupt);
-    if (survivors.length <= 1) this.#endGame(survivors[0]);
-    else if (this.state.currentPlayerId === p.id) this.#beginTurn(this.#nextActivePlayer(p.id));
+    if (survivors.length <= 1) return this.#endGame(survivors[0]);
+    if (this.state.currentPlayerId === p.id) this.#beginTurn(this.#nextActivePlayer(p.id));
+    this.#endAuctionIfDecided();
+    return undefined;
   }
 
   /** Buildings sell back at half value, then cash, property and cards pass to the creditor. */
@@ -929,7 +1002,250 @@ class Game {
     s.currentPlayerId = null;
     s.winnerId = winner ? winner.id : null;
     s.turn = Game.#freshTurn();
+    s.auction = null;
+    this.#recordWorth(true);
     this.#emit('gameOver', { winnerId: s.winnerId });
+  }
+
+  /** Snapshot everyone's net worth (every `worthEvery` turns, thinned to MAX_WORTH_POINTS). */
+  #recordWorth(force) {
+    const s = this.state;
+    const st = s.stats;
+    if (!force && s.turnNumber % st.worthEvery !== 0) return;
+    st.worth.push({ turnNumber: s.turnNumber, worth: s.players.map((p) => (p.bankrupt ? 0 : board.netWorth(p, s.properties))) });
+    if (st.worth.length > MAX_WORTH_POINTS) {
+      st.worth = st.worth.filter((_, i) => i % 2 === 0);
+      st.worthEvery *= 2;
+    }
+  }
+
+  // =========================================================================
+  // Auctions
+  // =========================================================================
+
+  #startAuction(tileId, startedBy) {
+    const s = this.state;
+    s.auction = {
+      tileId,
+      highBid: 0,
+      highBidderId: null,
+      bidders: s.players.filter((p) => !p.bankrupt).map((p) => p.id), // still in: not passed
+      startedBy,
+    };
+    s.phase = PHASE.AUCTION;
+    this.#emit('auctionStarted', { tileId, startedBy });
+  }
+
+  #minBid() {
+    return this.state.auction.highBid + AUCTION.minIncrement;
+  }
+
+  #checkBid(p, { amount }) {
+    const a = this.state.auction;
+    if (!a) return 'no auction is running';
+    if (!a.bidders.includes(p.id)) return 'you have passed on this auction';
+    if (p.cash < 0) return 'clear your debt before bidding';
+    if (a.highBidderId === p.id) return 'you already hold the high bid';
+    if (!Number.isInteger(amount)) return 'a bid must be a whole number of rupees';
+    if (amount < this.#minBid()) return `bid at least ${formatRupees(this.#minBid())}`;
+    if (amount > p.cash) return "you can't bid more than your cash";
+    return null;
+  }
+
+  #doBid(p, { amount }) {
+    const a = this.state.auction;
+    a.highBid = amount;
+    a.highBidderId = p.id;
+    this.#emit('bidPlaced', { playerId: p.id, tileId: a.tileId, amount });
+  }
+
+  #checkPass(p) {
+    const a = this.state.auction;
+    if (!a) return 'no auction is running';
+    if (!a.bidders.includes(p.id)) return 'you have already passed';
+    if (a.highBidderId === p.id) return 'you hold the high bid';
+    return null;
+  }
+
+  #doPass(p) {
+    const a = this.state.auction;
+    a.bidders = a.bidders.filter((id) => id !== p.id);
+    this.#emit('auctionPassed', { playerId: p.id, tileId: a.tileId });
+    this.#endAuctionIfDecided();
+  }
+
+  /** A bankrupt player drops out; if they held the high bid, the price stays but nobody holds it. */
+  #leaveAuction(p) {
+    const a = this.state.auction;
+    if (!a || !a.bidders.includes(p.id)) return;
+    a.bidders = a.bidders.filter((id) => id !== p.id);
+    if (a.highBidderId === p.id) a.highBidderId = null;
+  }
+
+  /** End early once everyone except the high bidder has passed (or everyone has, with no bids). */
+  #endAuctionIfDecided() {
+    const a = this.state.auction;
+    if (!a) return;
+    const challengers = a.bidders.filter((id) => id !== a.highBidderId);
+    if (challengers.length === 0 && (a.highBidderId || a.bidders.length === 0)) this.#finishAuction();
+  }
+
+  #finishAuction() {
+    const s = this.state;
+    const a = s.auction;
+    s.auction = null;
+    if (a.highBidderId) {
+      this.#transfer(a.highBidderId, BANK, a.highBid, 'auctionClosed', { tileId: a.tileId, winnerId: a.highBidderId });
+      s.properties[a.tileId].ownerId = a.highBidderId;
+    } else {
+      this.#emit('auctionClosed', { tileId: a.tileId, winnerId: null });
+    }
+    this.#settlePhase();
+  }
+
+  // =========================================================================
+  // Trades
+  // =========================================================================
+
+  #findTrade(tradeId) {
+    return typeof tradeId === 'string' ? this.state.trades.find((t) => t.id === tradeId) : undefined;
+  }
+
+  /** Read { toId, give, get } from an action. Returns { trade } or { error }. */
+  #readOffer(fromId, { toId, give, get }) {
+    const g = trades.normalizeSide(give);
+    if (g.error) return g;
+    const r = trades.normalizeSide(get);
+    if (r.error) return r;
+    if (typeof toId !== 'string' || toId === fromId) return { error: 'pick another player to trade with' };
+    return { trade: { fromId, toId, give: g.side, get: r.side } };
+  }
+
+  #checkNewTrade(trade) {
+    const open = this.state.trades.filter((t) => t.fromId === trade.fromId).length;
+    if (open >= TRADE.maxOpenPerPlayer) return `you already have ${TRADE.maxOpenPerPlayer} open trade proposals`;
+    return trades.tradeProblem(this.state, trade);
+  }
+
+  #checkProposeTrade(p, action) {
+    if (p.cash < 0) return 'clear your debt before proposing a trade';
+    const offer = this.#readOffer(p.id, action);
+    return offer.error || this.#checkNewTrade(offer.trade);
+  }
+
+  #doProposeTrade(p, action) {
+    this.#openTrade(this.#readOffer(p.id, action).trade);
+  }
+
+  #openTrade(trade) {
+    const s = this.state;
+    const open = { id: `t${++s.tradeSeq}`, ...trade, status: 'open', createdAt: this.now() };
+    s.trades.push(open);
+    this.#emit('tradeProposed', { tradeId: open.id, fromId: open.fromId, toId: open.toId, give: open.give, get: open.get });
+  }
+
+  #checkRecipient(p, { tradeId }) {
+    const t = this.#findTrade(tradeId);
+    if (!t) return 'that trade is no longer open';
+    return t.toId === p.id ? null : 'only the player it was offered to can answer it';
+  }
+
+  #checkProposer(p, { tradeId }) {
+    const t = this.#findTrade(tradeId);
+    if (!t) return 'that trade is no longer open';
+    return t.fromId === p.id ? null : 'only the player who proposed it can cancel it';
+  }
+
+  /**
+   * Accepting re-checks the trade (an invalid one is cancelled in #doAcceptTrade)
+   * and that both sides can pay the 10% fee on any mortgaged tiles they receive,
+   * after the cash in the trade has changed hands. The fee never creates debt.
+   */
+  #checkAcceptTrade(p, action) {
+    const error = this.#checkRecipient(p, action);
+    if (error) return error;
+    const t = this.#findTrade(action.tradeId);
+    if (trades.tradeProblem(this.state, t)) return null;
+    const from = this.#player(t.fromId);
+    const fromFee = trades.mortgageFees(this.state, t.get.tileIds);
+    const toFee = trades.mortgageFees(this.state, t.give.tileIds);
+    if (toFee > 0 && toFee > p.cash + t.give.cash - t.get.cash) return `you can't afford the ${formatRupees(toFee)} fee on mortgaged cities`;
+    if (fromFee > 0 && fromFee > from.cash - t.give.cash + t.get.cash) return `${from.name} can't afford the ${formatRupees(fromFee)} fee on mortgaged cities`;
+    return null;
+  }
+
+  /** The swap is atomic: everything was checked before anything moves. */
+  #doAcceptTrade(p, { tradeId }) {
+    const t = this.#findTrade(tradeId);
+    const problem = trades.tradeProblem(this.state, t);
+    if (problem) return this.#closeTrade(t, 'tradeCancelled', { reason: problem });
+    this.#closeTrade(t, 'tradeAccepted', { give: t.give, get: t.get });
+    if (t.give.cash) this.#transfer(t.fromId, t.toId, t.give.cash, 'tradePayment', { tradeId });
+    if (t.get.cash) this.#transfer(t.toId, t.fromId, t.get.cash, 'tradePayment', { tradeId });
+    this.#handOver(t.give, t.fromId, t.toId);
+    this.#handOver(t.get, t.toId, t.fromId);
+    return undefined;
+  }
+
+  /** Move tiles and jail-free cards; the receiver pays the fee on mortgaged tiles. */
+  #handOver(side, fromId, toId) {
+    for (const tileId of side.tileIds) {
+      const prop = this.state.properties[tileId];
+      prop.ownerId = toId;
+      this.#emit('propertyTransferred', { tileId, from: fromId, to: toId, mortgaged: prop.mortgaged, reason: 'trade' });
+      if (prop.mortgaged) this.#transfer(toId, BANK, trades.transferFee(board.getTileById(tileId)), 'mortgageFee', { tileId });
+    }
+    const giver = this.#player(fromId);
+    const taker = this.#player(toId);
+    for (const cardId of side.jailCards) {
+      const card = giver.jailFreeCards.find((c) => c.cardId === cardId);
+      giver.jailFreeCards = giver.jailFreeCards.filter((c) => c !== card);
+      taker.jailFreeCards.push(card);
+    }
+  }
+
+  #doDeclineTrade(p, { tradeId }) {
+    this.#closeTrade(this.#findTrade(tradeId), 'tradeDeclined');
+  }
+
+  #doCancelTrade(p, { tradeId }) {
+    this.#closeTrade(this.#findTrade(tradeId), 'tradeCancelled', { reason: 'withdrawn' });
+  }
+
+  /** A counter declines the trade and proposes a new one the other way (by default the mirror image). */
+  #counterOffer(p, action) {
+    const original = this.#findTrade(action.tradeId);
+    if (action.give === undefined && action.get === undefined) {
+      return { trade: { fromId: p.id, toId: original.fromId, give: original.get, get: original.give } };
+    }
+    return this.#readOffer(p.id, { toId: original.fromId, give: action.give, get: action.get });
+  }
+
+  #checkCounterTrade(p, action) {
+    const error = this.#checkRecipient(p, action);
+    if (error) return error;
+    if (p.cash < 0) return 'clear your debt before proposing a trade';
+    const offer = this.#counterOffer(p, action);
+    return offer.error || this.#checkNewTrade(offer.trade);
+  }
+
+  #doCounterTrade(p, action) {
+    const offer = this.#counterOffer(p, action);
+    this.#closeTrade(this.#findTrade(action.tradeId), 'tradeDeclined', { countered: true });
+    this.#openTrade(offer.trade);
+  }
+
+  #closeTrade(trade, eventType, extra = {}) {
+    this.state.trades = this.state.trades.filter((t) => t !== trade);
+    this.#emit(eventType, { tradeId: trade.id, fromId: trade.fromId, toId: trade.toId, ...extra });
+  }
+
+  /** Cancel every open trade that is no longer valid (tile changed hands, player out, buildings, cash…). */
+  #sweepTrades() {
+    for (const t of [...this.state.trades]) {
+      const problem = trades.tradeProblem(this.state, t);
+      if (problem) this.#closeTrade(t, 'tradeCancelled', { reason: problem });
+    }
   }
 
   // =========================================================================

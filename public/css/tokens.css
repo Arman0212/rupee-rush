@@ -1,0 +1,100 @@
+/* Design tokens: colours, type, spacing, radii. Light "paper" theme with a dark variant. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Bazaar palette */
+  --saffron: #f2952c;
+  --saffron-deep: #c96a12;
+  --marigold: #f7c548;
+  --indigo: #2f3a8f;
+  --indigo-deep: #1e2563;
+  --peacock: #0f7c74;
+  --peacock-bright: #17a398;
+  --chilli: #c8372d;
+  --leaf: #2e8b57;
+
+  /* Surfaces and ink */
+  --bg: #f4e9d4;
+  --bg-pattern: #ecdcbc;
+  --surface: #fffaf0;
+  --surface-2: #f8efdc;
+  --paper: #fdf8ec;
+  --paper-edge: #e3d2ae;
+  --ink: #2b2118;
+  --ink-soft: #6a5b49;
+  --ink-faint: #9a8b76;
+  --line: #e0cfa9;
+  --board-felt: #e9dcc0;
+  --center: #f6edd8;
+
+  /* Semantic */
+  --primary: var(--indigo);
+  --primary-ink: #fff;
+  --accent: var(--saffron);
+  --good: #1f7a45;
+  --bad: #b3261e;
+  --warn-bg: #fff1d6;
+  --warn-ink: #7a4a00;
+  --danger-bg: #fde4e1;
+  --focus: #1e2563;
+
+  /* Type */
+  --font-display: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.5rem;
+
+  /* Spacing, radii, shadows */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 6px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --shadow-sm: 0 1px 2px rgb(60 40 10 / 0.12);
+  --shadow: 0 4px 14px rgb(60 40 10 / 0.14);
+  --shadow-lg: 0 14px 40px rgb(40 25 5 / 0.28);
+
+  --topbar-h: 56px;
+  --tabbar-h: 60px;
+  --sidebar-w: 360px;
+  --step-ms: 140ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17130e;
+    --bg-pattern: #1e1912;
+    --surface: #221c15;
+    --surface-2: #2a231a;
+    --paper: #2f281f;
+    --paper-edge: #45392a;
+    --ink: #f3e9d8;
+    --ink-soft: #c7b79f;
+    --ink-faint: #8f8069;
+    --line: #3f3426;
+    --board-felt: #1d1812;
+    --center: #241e16;
+    --primary: #6f7ce0;
+    --focus: #9fb0ff;
+    --good: #5fcf8e;
+    --bad: #ff8a80;
+    --warn-bg: #3a2a0c;
+    --warn-ink: #ffd27a;
+    --danger-bg: #3d1714;
+    --shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 14px 40px rgb(0 0 0 / 0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --step-ms: 0ms; }
+}

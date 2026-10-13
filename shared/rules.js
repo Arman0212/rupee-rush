@@ -1,3 +1,8 @@
+/* UMD: CommonJS in Node (require), window.RR.rules in the browser, no build step. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else (root.RR = root.RR || {}).rules = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
 'use strict';
 
 /**
@@ -47,6 +52,11 @@ const BUILDING = Object.freeze({
 const MORTGAGE = Object.freeze({
   ratio: 0.5,
   unmortgageMultiplier: 1.1, // pay back mortgage value + 10%
+  transferFeeRatio: 0.1, // receiving a mortgaged tile in a trade costs 10% of its mortgage value
+});
+
+const TRADE = Object.freeze({
+  maxOpenPerPlayer: 3,
 });
 
 const AUCTION = Object.freeze({
@@ -102,13 +112,14 @@ function sanitizeSettings(input = {}) {
   return out;
 }
 
-module.exports = {
+return {
   DEFAULT_SETTINGS,
   SETTING_LIMITS,
   JAIL,
   DICE,
   BUILDING,
   MORTGAGE,
+  TRADE,
   AUCTION,
   ROOM,
   PLAYER_COLORS,
@@ -117,3 +128,4 @@ module.exports = {
   formatRupees,
   sanitizeSettings,
 };
+});

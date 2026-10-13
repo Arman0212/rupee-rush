@@ -89,17 +89,31 @@ the room settings; the engine shuffles turn order.
 ### `playAgain` `{}` (host only, after game over)
 Everyone still seated returns to the lobby with the same settings.
 
-### `action` `{ type, tileId?, amount? }`
-Dispatched as `game.dispatch(yourPlayerId, action)`. `type` is one of `roll`,
-`buy`, `decline`, `endTurn`, `build`, `sellHouse`, `mortgage`, `unmortgage`,
-`payJailFine`, `useJailCard`, `bankrupt` (`bid`, `trade` and `chat` return
-`not implemented`). `tileId` is needed for `build` / `sellHouse` / `mortgage` /
-`unmortgage`. The simplest correct client sends back an entry of
-`you.legalActions` unchanged.
+### `action` `{ type, tileId?, amount?, tradeId?, toId?, give?, get? }`
+Dispatched as `game.dispatch(yourPlayerId, action)`. The simplest correct client
+sends back an entry of `you.legalActions` unchanged (with its own `amount` for bids
+and its own offer for trades).
+
+| type | fields | when |
+|---|---|---|
+| `roll`, `buy`, `decline`, `endTurn`, `payJailFine`, `useJailCard`, `bankrupt` | none | your turn (bankrupt: while in debt) |
+| `build`, `sellHouse`, `mortgage`, `unmortgage` | `tileId` | your turn (sell/mortgage also while in debt) |
+| `bid` | `amount` | during an auction: ≥ high bid + ₹1, ≤ your cash, not while in debt |
+| `pass` | none | during an auction, unless you hold the high bid |
+| `proposeTrade` | `toId`, `give`, `get` | any time except auctions; not bankrupt or in debt; max 3 open |
+| `acceptTrade`, `declineTrade` | `tradeId` | the player the trade was offered to |
+| `counterTrade` | `tradeId`, optional `give`/`get` | the recipient; default is the mirror image |
+| `cancelTrade` | `tradeId` | the proposer |
+
+`give` and `get` are `{ tileIds?: string[], cash?: number, jailCards?: string[] }`
+(jail cards by card id, e.g. `'s-jailfree'`). `give` is what the proposer hands over.
+While an auction runs, only `bid` and `pass` are accepted. Closing an auction is
+server-only (its timer); there is no client action for it.
 ```js
 socket.emit('action', { type: 'build', tileId: 'patna' }, cb);
 // { ok: true, version: 57 }   the version of the state broadcast this action caused
 // { ok: false, error: 'build evenly across the set' }
+socket.emit('action', { type: 'proposeTrade', toId: 'b41…', give: { cash: 90 }, get: { tileIds: ['nagpur'] } }, cb);
 ```
 
 ### `chat` `{ text }`
@@ -116,6 +130,7 @@ one per broadcast; a socket never sees it go backwards.
 ```js
 {
   version: 57,
+  serverNow: 1760389990000,          // server clock; offset = serverNow - Date.now() for countdowns
   room: {
     code: 'KAQBL7',
     status: 'lobby' | 'playing' | 'finished',
@@ -125,7 +140,11 @@ one per broadcast; a socket never sees it go backwards.
     players: [{ id, name, color, connected, disconnectedAt, isHost }],
   },
   publicState: null | { phase, turnNumber, currentPlayerId, winnerId, players, properties,
-                        jackpot, turn, decks: { surprise: { remaining }, treasure: { remaining } }, ... },
+                        jackpot, turn, decks: { surprise: { remaining }, treasure: { remaining } },
+                        auction: null | { tileId, highBid, highBidderId, bidders, startedBy, endsAt },
+                        trades: [{ id, fromId, toId, give, get, status: 'open', createdAt }],
+                        stats: null | { worth, landings, biggestRent },   // only at game over
+                        ... },
   events: [ { type: 'rentPaid', from, to, amount, tileId, at }, ... ],  // what just happened
   deadline: null | 1760390000000,   // ms timestamp when the turn timer fires
 }
@@ -175,14 +194,32 @@ no longer in the room and should not auto-rejoin.
 
 Engine events are listed at the top of `server/game/Game.js`. All money events carry
 `{ from, to, amount }`, where `null` is the bank and `'jackpot'` is the Vacation pot.
+Auction events: `auctionStarted { tileId, startedBy }`, `bidPlaced { playerId, tileId, amount }`,
+`auctionPassed { playerId, tileId }`, `auctionClosed { tileId, winnerId, from?, to?, amount? }`.
+Trade events: `tradeProposed { tradeId, fromId, toId, give, get }`, `tradeAccepted`,
+`tradeDeclined { countered? }`, `tradeCancelled { reason }` (`'withdrawn'` when the
+proposer cancels), plus the money events `tradePayment` and `mortgageFee` (10% of the
+mortgage value, paid to the bank by whoever receives a mortgaged tile). Open trades
+that stop being valid (a tile changed hands, a player went bankrupt, buildings went
+up in a set, cash ran short) are cancelled automatically with a reason.
 
 ## Timers
 
+- **Auction timer**: `settings.auctionSeconds` (default 10), restarted by every valid
+  bid and broadcast as `publicState.auction.endsAt`. When it fires the server closes
+  the auction. Disconnected players are treated as having passed. The turn timer is
+  paused while an auction runs and resumes afterwards with what was left (at least
+  5 s). If a timed-out turn declined into an auction, the server finishes that turn
+  as soon as the auction closes.
+
 - **Turn timer** (`settings.turnTimerSeconds > 0`): one deadline per turn, broadcast as
   `state.deadline`. Acting within the turn does not reset it. When it fires, the server
-  plays out the rest of the turn: `roll`, else `decline`, else `endTurn`. It never buys,
-  sells or mortgages. A player in debt (who can't roll or end the turn) is declared
-  bankrupt.
+  plays out the rest of the turn: `roll`, else `decline`, else `endTurn`. It never buys.
+  A player in debt is first liquidated with legal actions only, one step at a time,
+  stopping as soon as cash is back to ₹0 or more: (1) mortgage unbuilt tiles in sets
+  with no buildings, cheapest first; (2) sell buildings evenly, cheapest set first;
+  (3) mortgage tiles as their sets become bare. Only if that can't clear the debt is
+  the player declared bankrupt.
 - **Away timer**: a disconnected player keeps a lobby seat for 60 s. Mid-game the seat
   is kept; after 60 s the host may kick them, and a disconnected host hands hosting to
   the next connected player. If the timer setting is off and the current player is

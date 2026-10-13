@@ -196,11 +196,10 @@ describe('validation', () => {
     assert.equal(reject(game, 'nobody', 'roll'), 'unknown player');
   });
 
-  test('bid, trade and chat are accepted but not implemented', () => {
+  test('chat is not an engine action; old placeholder types are unknown', () => {
     const game = setup();
-    for (const type of ['bid', 'trade', 'chat']) {
-      assert.deepEqual(game.dispatch('p1', { type }), { ok: false, error: 'not implemented' });
-    }
+    assert.deepEqual(game.dispatch('p1', { type: 'chat' }), { ok: false, error: 'not implemented' });
+    assert.deepEqual(game.dispatch('p1', { type: 'trade' }), { ok: false, error: 'unknown action' });
   });
 
   test('dispatch never throws on garbage input', () => {

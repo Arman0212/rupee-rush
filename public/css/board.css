@@ -1,0 +1,261 @@
+/* The board: an 11×11 grid, corners 1.6× a side tile, scaled to fit.
+   Sizes inside the board use container units of the board itself, so the
+   whole thing scales as one piece. 12.2 = 9 side tiles + 2 corners × 1.6. */
+
+.board {
+  container-type: inline-size;
+  position: relative;
+  width: min(100cqw, 100cqh);
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: 1.6fr repeat(9, 1fr) 1.6fr;
+  grid-template-rows: 1.6fr repeat(9, 1fr) 1.6fr;
+  background: var(--board-felt);
+  border-radius: 1.6%;
+  box-shadow: 0 0 0 3px var(--peacock), 0 0 0 6px var(--saffron), var(--shadow-lg);
+  --cell: calc(100cqw / 12.2);
+  --corner: calc(var(--cell) * 1.6);
+  --gutter: calc(var(--cell) * 0.06);
+}
+
+/* ---------------------------------------------------------------- Tiles */
+
+.tile {
+  position: relative; min-width: 0; min-height: 0;
+  margin: 0; padding: 0; border: 0; background: none;
+  color: var(--ink); font: inherit; cursor: pointer;
+}
+.tile:focus-visible { outline: none; }
+.tile:focus-visible .tile-inner { outline: 3px solid var(--focus); outline-offset: 1px; z-index: 2; }
+.tile:hover .tile-inner { border-color: var(--saffron); }
+
+/* Content is laid out for the bottom edge (band towards the centre), then rotated. */
+.tile-inner {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--cell) - var(--gutter));
+  height: calc(var(--corner) - var(--gutter));
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4%;
+  padding-bottom: calc(var(--cell) * 0.12);
+  background: var(--paper);
+  border: 1px solid var(--paper-edge);
+  border-radius: calc(var(--cell) * 0.1);
+  overflow: hidden;
+  text-align: center;
+  font-size: calc(var(--cell) * 0.15);
+  line-height: 1.05;
+}
+.side-left .tile-inner { --rot: 90deg; }
+.side-top .tile-inner { --rot: 180deg; }
+.side-right .tile-inner { --rot: -90deg; }
+
+.tile-band {
+  flex: none; width: 100%; height: 24%;
+  background: var(--band);
+  display: flex; align-items: center; justify-content: center;
+  border-bottom: 1px solid rgb(0 0 0 / 0.15);
+}
+.tile-name {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 0 5%; font-weight: 700; overflow-wrap: anywhere; hyphens: auto;
+}
+.tile-name.is-long { font-size: 0.82em; letter-spacing: -0.02em; }
+.tile-price { font: 700 1.05em/1 var(--font-display); color: var(--ink-soft); }
+.tile-short { display: none; font: 800 1.1em/1 var(--font-display); }
+.tile-glyph { margin-top: 14%; font-size: calc(var(--cell) * 0.34); line-height: 1; color: var(--primary); }
+.tile-glyph-big { margin-top: 22%; font: 800 calc(var(--cell) * 0.52)/1 var(--font-display); }
+.tile-surprise .tile-glyph { color: var(--saffron-deep); }
+.tile-treasure .tile-glyph { color: var(--peacock); }
+.tile-tax .tile-glyph { color: var(--chilli); }
+.tile-surprise .tile-inner { background: linear-gradient(180deg, rgb(242 149 44 / 0.16), transparent 60%), var(--paper); }
+.tile-treasure .tile-inner { background: linear-gradient(180deg, rgb(15 124 116 / 0.14), transparent 60%), var(--paper); }
+
+/* Owner: a thick edge on the outer side of the tile plus a corner flag. */
+.tile.owned .tile-inner {
+  box-shadow: inset 0 calc(var(--cell) * -0.1) 0 var(--owner);
+}
+.tile.owned .tile-inner::after {
+  content: ''; position: absolute; right: 0; top: 24%;
+  border-style: solid;
+  border-width: 0 calc(var(--cell) * 0.2) calc(var(--cell) * 0.2) 0;
+  border-color: transparent var(--owner) transparent transparent;
+}
+.tile-airport.owned .tile-inner::after,
+.tile-utility.owned .tile-inner::after { top: 0; }
+
+/* Buildings sit in the set band. */
+.buildings { display: flex; align-items: center; justify-content: center; gap: 6%; width: 100%; height: 100%; }
+.house {
+  width: calc(var(--cell) * 0.15); height: calc(var(--cell) * 0.15); border-radius: 50%;
+  background: #1f8a4c; box-shadow: 0 0 0 1.5px #fff;
+}
+.hotel {
+  width: 58%; height: 52%; border-radius: 3px;
+  background: var(--chilli); box-shadow: 0 0 0 1.5px #fff;
+}
+
+/* Mortgaged: greyed out with a stamp. */
+.stamp {
+  display: none; position: absolute; left: 50%; top: 52%;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  padding: 1px 3px; border: 2px solid var(--bad); border-radius: 3px;
+  color: var(--bad); background: rgb(255 255 255 / 0.8);
+  font: 800 calc(var(--cell) * 0.12)/1 var(--font-ui); text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.tile.mortgaged .tile-inner > :not(.stamp) { filter: grayscale(1); opacity: 0.4; }
+.tile.mortgaged .stamp { display: block; }
+
+/* ---------------------------------------------------------------- Corners */
+
+.side-corner .tile-inner {
+  width: calc(var(--corner) - var(--gutter));
+  justify-content: center; gap: 6%; padding: 6%;
+}
+.corner-big { font: 800 calc(var(--cell) * 0.5)/1 var(--font-display); color: var(--chilli); }
+.corner-mid { font-size: calc(var(--cell) * 0.22); color: var(--primary); }
+@media (prefers-color-scheme: dark) { .corner-mid { color: var(--marigold); } }
+.corner-note { font-size: calc(var(--cell) * 0.13); color: var(--ink-soft); font-weight: 600; }
+.corner-note:empty { display: none; }
+.jackpot-note { color: var(--peacock); font-weight: 800; font-size: calc(var(--cell) * 0.15); }
+.corner-glyph { font-size: calc(var(--cell) * 0.42); line-height: 1; color: var(--saffron-deep); }
+.go-arrow { font: 800 calc(var(--cell) * 0.42)/1 var(--font-display); color: var(--peacock); }
+.tile-go .tile-inner { background: radial-gradient(circle at 70% 70%, rgb(242 149 44 / 0.2), transparent 70%), var(--paper); }
+
+/* Jail: the barred cell faces the centre; visitors stand along the outer edges. */
+.tile-jail .tile-inner { display: block; padding: 0; }
+.jail-cell {
+  position: absolute; left: 38%; top: 0; right: 0; bottom: 38%;
+  background:
+    repeating-linear-gradient(90deg, rgb(43 33 24 / 0.55) 0 2px, transparent 2px 17%),
+    color-mix(in srgb, var(--saffron) 40%, var(--paper));
+  border-left: 2px solid var(--saffron-deep);
+  border-bottom: 2px solid var(--saffron-deep);
+}
+.jail-label {
+  position: absolute; left: 0; right: 0; bottom: 4%;
+  font: 800 calc(var(--cell) * 0.16)/1 var(--font-display); color: var(--ink);
+  background: rgb(255 255 255 / 0.75); padding: 2px 0;
+}
+.visiting {
+  position: absolute; left: 0; right: 0; bottom: 3%;
+  font-size: calc(var(--cell) * 0.12); font-weight: 600; color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------- Centre */
+
+.board-center {
+  grid-row: 2 / 11; grid-column: 2 / 11;
+  position: relative; min-width: 0; min-height: 0;
+  margin: calc(var(--cell) * 0.14);
+  border-radius: calc(var(--cell) * 0.3);
+  background: var(--center);
+  box-shadow: inset 0 0 0 2px var(--paper-edge);
+  overflow: hidden;
+}
+/* A rangoli drawn entirely with gradients. */
+.rangoli {
+  position: absolute; left: 50%; top: 50%;
+  width: 92%; aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; pointer-events: none; opacity: 0.5;
+  background:
+    radial-gradient(circle, transparent 0 14%, var(--saffron) 14.5% 15.5%, transparent 16% 27%, var(--peacock) 27.5% 28.2%, transparent 28.7% 47%, var(--saffron) 47.5% 48.2%, transparent 48.7%),
+    repeating-conic-gradient(from 0deg, rgb(242 149 44 / 0.28) 0 6deg, transparent 6deg 15deg),
+    repeating-conic-gradient(from 7.5deg, rgb(15 124 116 / 0.2) 0 4deg, transparent 4deg 30deg),
+    radial-gradient(circle, rgb(247 197 72 / 0.35) 0 13%, transparent 13.5%);
+  -webkit-mask: radial-gradient(circle, #000 0 49%, transparent 49.5%);
+          mask: radial-gradient(circle, #000 0 49%, transparent 49.5%);
+}
+.center-inner {
+  position: relative; height: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: calc(var(--cell) * 0.12);
+  padding: calc(var(--cell) * 0.28) calc(var(--cell) * 0.3);
+}
+.center-brand {
+  font: 800 calc(var(--cell) * 0.5)/1 var(--font-display);
+  color: var(--indigo); letter-spacing: 0.02em;
+  text-shadow: 0 2px 0 rgb(242 149 44 / 0.45);
+}
+@media (prefers-color-scheme: dark) { .center-brand { color: var(--marigold); text-shadow: none; } }
+.turn-info {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px;
+  min-height: 24px; text-align: center;
+  font-size: max(12px, calc(var(--cell) * 0.2));
+  background: rgb(255 255 255 / 0.55); padding: 4px 12px; border-radius: 999px;
+}
+.turn-info:empty { display: none; }
+@media (prefers-color-scheme: dark) { .turn-info { background: rgb(0 0 0 / 0.3); } }
+.turn-who { font-weight: 800; }
+
+/* Dice */
+.dice { display: flex; gap: calc(var(--cell) * 0.22); }
+.die {
+  width: calc(var(--cell) * 0.72); height: calc(var(--cell) * 0.72);
+  min-width: 26px; min-height: 26px;
+  display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  padding: 13%; border-radius: 20%;
+  background: #fffdf7; box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.25);
+}
+.pip { margin: 14%; border-radius: 50%; background: var(--indigo-deep); visibility: hidden; }
+.dice.doubles .pip { background: var(--chilli); }
+.die[data-value="1"] .pip:nth-child(5),
+.die[data-value="2"] .pip:is(:nth-child(1), :nth-child(9)),
+.die[data-value="3"] .pip:is(:nth-child(1), :nth-child(5), :nth-child(9)),
+.die[data-value="4"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(7), :nth-child(9)),
+.die[data-value="5"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(5), :nth-child(7), :nth-child(9)),
+.die[data-value="6"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(4), :nth-child(6), :nth-child(7), :nth-child(9)) { visibility: visible; }
+.dice.rolling .die { animation: tumble 240ms linear infinite; }
+.dice.rolling .die:last-child { animation-direction: reverse; }
+@keyframes tumble {
+  0% { transform: rotate(0) translateY(0); }
+  50% { transform: rotate(180deg) translateY(-4px); }
+  100% { transform: rotate(360deg) translateY(0); }
+}
+
+/* Turn timer */
+.timer { width: 70%; display: flex; align-items: center; gap: 8px; }
+.timer-track { flex: 1; height: 8px; border-radius: 999px; background: rgb(0 0 0 / 0.1); overflow: hidden; }
+.timer-bar { height: 100%; width: 100%; background: var(--peacock); border-radius: inherit; }
+.timer.urgent .timer-bar { background: var(--chilli); }
+.timer-text { font: 700 var(--text-sm)/1 var(--font-display); min-width: 3ch; }
+
+.jackpot {
+  font: 700 max(12px, calc(var(--cell) * 0.2))/1 var(--font-display); color: var(--peacock);
+  background: rgb(15 124 116 / 0.12); padding: 4px 12px; border-radius: 999px;
+}
+
+.board-center .actions { width: 100%; }
+.board-center .log { flex: 1; min-height: 0; width: 100%; overflow-y: auto; }
+.board-center .log-entry { background: rgb(255 255 255 / 0.6); }
+@media (prefers-color-scheme: dark) { .board-center .log-entry { background: rgb(0 0 0 / 0.25); } }
+
+/* ---------------------------------------------------------------- Tokens */
+
+.token-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.token {
+  --size: max(14px, calc(var(--cell) * 0.44));
+  position: absolute;
+  width: var(--size); height: var(--size);
+  margin: calc(var(--size) / -2) 0 0 calc(var(--size) / -2);
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--token); color: var(--token-ink, #fff);
+  border: 2px solid #fff;
+  font: 800 calc(var(--size) * 0.55)/1 var(--font-display);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.45);
+  transition: left var(--step-ms) ease-in-out, top var(--step-ms) ease-in-out;
+}
+.token.current { z-index: 1; box-shadow: 0 0 0 3px var(--marigold), 0 3px 8px rgb(0 0 0 / 0.5); }
+
+/* ---------------------------------------------------------------- Small boards */
+
+@container (max-width: 620px) {
+  .tile-name, .tile-price, .corner-note, .visiting { display: none; }
+  .tile-city .tile-short { display: block; margin-top: 22%; font-size: calc(var(--cell) * 0.22); }
+  .tile-glyph { margin-top: 30%; font-size: calc(var(--cell) * 0.42); }
+  .jail-label { font-size: calc(var(--cell) * 0.19); }
+  .corner-big { font-size: calc(var(--cell) * 0.6); }
+  .corner-mid { font-size: calc(var(--cell) * 0.24); }
+  .center-brand { font-size: calc(var(--cell) * 0.7); }
+  .center-inner { justify-content: center; }
+}

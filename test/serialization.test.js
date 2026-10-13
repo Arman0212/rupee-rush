@@ -16,6 +16,13 @@ function playedGame(seed, steps) {
 
 function advance(game, steps) {
   for (let i = 0; i < steps && game.state.phase !== 'gameOver'; i++) {
+    if (game.state.phase === 'auction') {
+      // The server's timer would close it; bid once first so some auctions sell.
+      const bidder = game.state.players.find((p) => game.getLegalActions(p.id).some((a) => a.type === 'bid'));
+      if (bidder && i % 2) game.dispatch(bidder.id, game.getLegalActions(bidder.id).find((a) => a.type === 'bid'));
+      assert.ok(game.closeAuction().ok);
+      continue;
+    }
     const id = game.state.currentPlayerId;
     const legal = game.getLegalActions(id);
     const action = legal.find((a) => a.type === 'buy') || legal.find((a) => a.type === 'build') || legal[0];

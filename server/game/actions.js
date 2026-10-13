@@ -17,13 +17,23 @@ const ACTIONS = Object.freeze({
   PAY_JAIL_FINE: 'payJailFine',
   USE_JAIL_CARD: 'useJailCard',
   BANKRUPT: 'bankrupt',
-  // Accepted but not built yet: dispatch answers { ok: false, error: 'not implemented' }.
+  // Auctions (only while phase is 'auction'; closing is server-only, via game.closeAuction()).
   BID: 'bid',
-  TRADE: 'trade',
+  PASS: 'pass',
+  // Trades
+  PROPOSE_TRADE: 'proposeTrade',
+  ACCEPT_TRADE: 'acceptTrade',
+  DECLINE_TRADE: 'declineTrade',
+  CANCEL_TRADE: 'cancelTrade',
+  COUNTER_TRADE: 'counterTrade',
+  // Chat goes through the socket layer, never the engine.
   CHAT: 'chat',
 });
 
-const NOT_IMPLEMENTED = Object.freeze(new Set([ACTIONS.BID, ACTIONS.TRADE, ACTIONS.CHAT]));
+const NOT_IMPLEMENTED = Object.freeze(new Set([ACTIONS.CHAT]));
+
+/** The only actions allowed while an auction is running. */
+const AUCTION_ACTIONS = Object.freeze(new Set([ACTIONS.BID, ACTIONS.PASS]));
 
 /** Actions that name a property and therefore carry a `tileId`. */
 const TILE_ACTIONS = Object.freeze([ACTIONS.BUILD, ACTIONS.SELL_HOUSE, ACTIONS.MORTGAGE, ACTIONS.UNMORTGAGE]);
@@ -32,7 +42,7 @@ const PHASE = Object.freeze({
   LOBBY: 'lobby',
   AWAITING_ROLL: 'awaitingRoll',
   BUY_DECISION: 'buyDecision',
-  AUCTION: 'auction', // reserved for a later phase
+  AUCTION: 'auction', // a declined tile is being auctioned
   AWAITING_END: 'awaitingEnd',
   GAME_OVER: 'gameOver',
 });
@@ -45,4 +55,4 @@ const PHASE = Object.freeze({
 const BANK = null;
 const JACKPOT = 'jackpot';
 
-module.exports = { ACTIONS, NOT_IMPLEMENTED, TILE_ACTIONS, PHASE, BANK, JACKPOT };
+module.exports = { ACTIONS, NOT_IMPLEMENTED, AUCTION_ACTIONS, TILE_ACTIONS, PHASE, BANK, JACKPOT };
