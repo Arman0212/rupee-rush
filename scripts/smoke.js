@@ -17,7 +17,7 @@
 const assert = require('node:assert/strict');
 const { io: connect } = require('socket.io-client');
 const { createServer } = require('../server/index');
-const { PLAYER_COLORS } = require('../shared/rules');
+const { PLAYER_COLORS, GAME_NAME } = require('../shared/rules');
 
 const TURN_CAP = 400;
 const WAIT_MS = 5000;
@@ -263,13 +263,13 @@ async function run() {
 
   /**
    * One auction and one accepted trade, all over the sockets. The only staged
-   * step: the server-side game is put at "current player may buy Nagpur".
+   * step: the server-side game is put at "current player may buy Tel Aviv".
    */
   async function auctionAndTradeScenario() {
     const host = clients[0];
     const room = server.manager.get(host.state.room.code);
     const s = room.game.state;
-    Object.assign(s.turn, { pendingTileId: 'nagpur', dice: [2, 4], canRollAgain: false });
+    Object.assign(s.turn, { pendingTileId: 'tel-aviv', dice: [2, 4], canRollAgain: false });
     s.phase = 'buyDecision';
     const byId = (id) => clients.find((c) => c.playerId === id);
     const seller = byId(s.currentPlayerId);
@@ -279,7 +279,7 @@ async function run() {
     let r = await seller.call('action', { type: 'decline' });
     assert.ok(r.ok, r.error);
     await settle(r.version);
-    assert.equal(bidder.state.publicState.auction.tileId, 'nagpur');
+    assert.equal(bidder.state.publicState.auction.tileId, 'tel-aviv');
     assert.ok(bidder.state.publicState.auction.endsAt > bidder.state.serverNow);
     r = await bidder.call('action', { type: 'bid', amount: 60 });
     assert.ok(r.ok, r.error);
@@ -290,12 +290,12 @@ async function run() {
     }
     await settle(r.version);
     assert.equal(host.state.publicState.auction, null);
-    assert.equal(host.state.publicState.properties.nagpur.ownerId, bidder.playerId);
+    assert.equal(host.state.publicState.properties['tel-aviv'].ownerId, bidder.playerId);
     assert.ok(host.received('state').some((st) => st.events.some((e) => e.type === 'auctionClosed' && e.amount === 60)));
-    step(`auction over sockets: ${bidder.label} won Nagpur for ₹60 after the others passed`);
+    step(`auction over sockets: ${bidder.label} won Tel Aviv for ₹60 after the others passed`);
 
-    // A trade: `other` offers ₹90 for Nagpur, `bidder` accepts.
-    r = await other.call('action', { type: 'proposeTrade', toId: bidder.playerId, give: { cash: 90 }, get: { tileIds: ['nagpur'] } });
+    // A trade: `other` offers ₹90 for Tel Aviv, `bidder` accepts.
+    r = await other.call('action', { type: 'proposeTrade', toId: bidder.playerId, give: { cash: 90 }, get: { tileIds: ['tel-aviv'] } });
     assert.ok(r.ok, r.error);
     await settle(r.version);
     const trade = bidder.state.publicState.trades[0];
@@ -304,9 +304,9 @@ async function run() {
     r = await bidder.call('action', { type: 'acceptTrade', tradeId: trade.id });
     assert.ok(r.ok, r.error);
     await settle(r.version);
-    assert.equal(host.state.publicState.properties.nagpur.ownerId, other.playerId);
+    assert.equal(host.state.publicState.properties['tel-aviv'].ownerId, other.playerId);
     assert.deepEqual(host.state.publicState.trades, []);
-    step(`trade over sockets: ${other.label} bought Nagpur from ${bidder.label} for ₹90`);
+    step(`trade over sockets: ${other.label} bought Tel Aviv from ${bidder.label} for ₹90`);
   }
 
   // Disconnect a non-host mid-game, reconnect with its token, then take over from a second tab.
@@ -354,7 +354,7 @@ const watchdog = setTimeout(() => {
   process.exit(1);
 }, WATCHDOG_MS);
 
-console.log('Rupee Rush smoke test');
+console.log(`${GAME_NAME} smoke test`);
 run().then(
   () => {
     clearTimeout(watchdog);

@@ -1,4 +1,5 @@
 // "How to play": a short, friendly guide in a dialog.
+import { rules } from '../shared.js';
 import { el } from '../dom.js';
 import { openDialog } from './modal.js';
 
@@ -21,7 +22,7 @@ export function openHelp() {
     label: 'How to play',
     content: [
       el('p', { className: 'eyebrow', text: 'How to play' }),
-      el('h2', { className: 'dialog-title', text: 'Rupee Rush in two minutes' }),
+      el('h2', { className: 'dialog-title', text: `${rules.GAME_NAME} in two minutes` }),
       el('div', { className: 'help-sections' }, SECTIONS.map(([title, text]) => el('section', { className: 'help-section' },
         el('h3', { text: title }),
         el('p', { text })))),

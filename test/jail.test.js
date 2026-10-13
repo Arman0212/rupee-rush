@@ -54,7 +54,7 @@ describe('getting out', () => {
     assert.equal(player(game, 'p1').cash, 1450);
     assert.equal(player(game, 'p1').inJail, false);
     assert.equal(game.state.phase, 'awaitingRoll');
-    act(game, 'p1', 'roll'); // 10 -> 16 Surat, and a double earns another roll
+    act(game, 'p1', 'roll'); // 10 -> 16 Frankfurt, and a double earns another roll
     assert.equal(player(game, 'p1').position, 16);
     act(game, 'p1', 'decline');
     assert.equal(game.state.phase, 'awaitingRoll');
@@ -86,7 +86,7 @@ describe('getting out', () => {
     const game = jailed([[2, 2]]);
     const events = act(game, 'p1', 'roll');
     assert.equal(findEvent(events, 'leftJail').method, 'doubles');
-    assert.equal(player(game, 'p1').position, 14); // Chandigarh
+    assert.equal(player(game, 'p1').position, 14); // Rome
     act(game, 'p1', 'decline');
     assert.equal(game.state.phase, 'awaitingEnd');
     assert.equal(player(game, 'p1').cash, 1500);
@@ -107,13 +107,13 @@ describe('getting out', () => {
     assert.equal(findEvent(events, 'moneyPaid').reason, 'jailFine');
     assert.equal(findEvent(events, 'leftJail').method, 'forced');
     assert.equal(player(game, 'p1').cash, 1450);
-    assert.equal(player(game, 'p1').position, 13); // Kochi
+    assert.equal(player(game, 'p1').position, 13); // Milan
     assert.equal(game.state.phase, 'buyDecision');
   });
 
   test('the forced fine can push you into debt to the bank', () => {
     const game = jailed([[1, 3]], { jailTurns: 2, cash: 20 });
-    act(game, 'p1', 'roll'); // 10 -> 14 Chandigarh
+    act(game, 'p1', 'roll'); // 10 -> 14 Rome
     const p1 = player(game, 'p1');
     assert.equal(p1.cash, -30);
     assert.deepEqual({ amount: p1.debt.amount, creditorId: p1.debt.creditorId }, { amount: 30, creditorId: null });

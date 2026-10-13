@@ -8,14 +8,14 @@
   <meta name="theme-color" content="#2f3a8f">
   <!-- Link previews (WhatsApp, Slack, iMessage…). The server fills in the absolute URLs. -->
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Rupee Rush">
+  <meta property="og:site_name" content="Monopoly">
   <meta property="og:title" content="%TITLE%">
   <meta property="og:description" content="%DESCRIPTION%">
   <meta property="og:url" content="%URL%">
   <meta property="og:image" content="%ORIGIN%/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Rupee Rush: a rupee coin over a board of Indian cities">
+  <meta property="og:image:alt" content="Monopoly: buy, build and trade around the world">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
@@ -26,6 +26,14 @@
   <link rel="stylesheet" href="/css/tokens.css">
   <link rel="stylesheet" href="/css/ui.css">
   <link rel="stylesheet" href="/css/board.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('rr:theme') || 'dark';
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    })();
+  </script>
   <!-- Shared game data (UMD → window.RR), then the socket client, then the app. -->
   <script src="/shared/board.js"></script>
   <script src="/shared/cards.js"></script>
@@ -37,16 +45,22 @@
   <a class="skip-link" href="#main">Skip to content</a>
 
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Rupee Rush home">
+    <a class="brand" href="/" aria-label="Monopoly home">
       <span class="brand-coin" aria-hidden="true">₹</span>
-      <span class="brand-name">Rupee Rush</span>
+      <span class="brand-name">Monopoly</span>
     </a>
     <div class="topbar-right">
       <span id="topbar-room" class="room-chip" hidden></span>
-      <button id="help-btn" class="icon-btn" type="button" aria-label="How to play" title="How to play"><span aria-hidden="true">?</span></button>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+        <span aria-hidden="true">☀️</span>
+      </button>
+      <button id="notif-toggle" class="icon-btn" type="button" aria-label="Notifications: All" title="Notifications: All">
+        <span aria-hidden="true">🔔</span>
+      </button>
       <button id="sound-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Sound off">
         <span aria-hidden="true">🔇</span>
       </button>
+      <button id="help-btn" class="icon-btn" type="button" aria-label="How to play" title="How to play"><span aria-hidden="true">?</span></button>
       <span id="conn" class="pill pill-connecting" role="status">Connecting…</span>
       <button id="leave-btn" class="btn btn-ghost btn-sm" type="button" hidden>Leave</button>
     </div>
@@ -57,8 +71,8 @@
     <section id="screen-home" class="screen screen-home" aria-labelledby="home-title" hidden>
       <div class="hero">
         <div class="logo" aria-hidden="true"><span>₹</span></div>
-        <h1 id="home-title" class="title">Rupee Rush</h1>
-        <p class="tagline">Trade your way across India's cities. Buy, build and outlast your friends.</p>
+        <h1 id="home-title" class="title">Monopoly</h1>
+        <p class="tagline">Buy, build, bid and trade your way around the world.</p>
       </div>
       <div class="home-grid">
         <div class="card home-card">
@@ -121,10 +135,9 @@
           <div class="board-fit">
             <div id="board" class="board" role="group" aria-label="Game board">
               <div class="board-center">
-                <div class="rangoli" aria-hidden="true"></div>
+                <div class="center-glow" aria-hidden="true"></div>
                 <div class="center-inner">
-                  <p class="center-brand" aria-hidden="true">Rupee Rush</p>
-                  <div id="turn-info" class="turn-info" aria-live="polite"></div>
+                  <p class="center-brand" aria-hidden="true">Monopoly</p>
                   <div id="dice" class="dice" aria-label="Dice"></div>
                   <div id="timer" class="timer" hidden>
                     <div class="timer-track"><div class="timer-bar"></div></div>

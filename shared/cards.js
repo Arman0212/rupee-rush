@@ -27,9 +27,9 @@
 
 const SURPRISE_CARDS = Object.freeze([
   { id: 's-go',        text: 'Your startup got funded! Advance to GO and collect ₹200.', effect: { kind: 'moveTo', tileId: 'go', collectGo: true } },
-  { id: 's-mumbai',    text: 'Business trip to Mumbai. Advance to Mumbai.', effect: { kind: 'moveTo', tileId: 'mumbai', collectGo: true } },
-  { id: 's-chennai',   text: 'Filter coffee calls. Advance to Chennai. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'chennai', collectGo: true } },
-  { id: 's-indore',    text: 'Street-food tour! Advance to Indore. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'indore', collectGo: true } },
+  { id: 's-new-york',  text: 'Business trip to New York. Advance to New York.', effect: { kind: 'moveTo', tileId: 'new-york', collectGo: true } },
+  { id: 's-shanghai',  text: 'Filter coffee calls. Advance to Shanghai. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'shanghai', collectGo: true } },
+  { id: 's-venice',    text: 'Street-food tour! Advance to Venice. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'venice', collectGo: true } },
   { id: 's-airport-1', text: 'Flight upgrade! Advance to the nearest airport. If owned, pay the owner double rent.', effect: { kind: 'nearest', tileType: 'airport', rentMultiplier: 2 } },
   { id: 's-airport-2', text: 'Missed your connection. Advance to the nearest airport. If owned, pay the owner double rent.', effect: { kind: 'nearest', tileType: 'airport', rentMultiplier: 2 } },
   { id: 's-utility',   text: 'Power cut! Advance to the nearest utility. If owned, roll and pay the owner 10× the dice.', effect: { kind: 'nearest', tileType: 'utility', rentMultiplier: 10 } },
@@ -39,7 +39,7 @@ const SURPRISE_CARDS = Object.freeze([
   { id: 's-jail',      text: 'Caught jumping the signal. Go directly to Jail. Do not pass GO.', effect: { kind: 'goToJail' } },
   { id: 's-repairs',   text: 'Monsoon damage! Pay ₹25 per house and ₹100 per hotel.', effect: { kind: 'repairs', perHouse: 25, perHotel: 100 } },
   { id: 's-challan',   text: 'Traffic challan. Pay ₹15.', effect: { kind: 'pay', amount: 15 } },
-  { id: 's-delhi-air', text: 'Take a flight from Delhi Airport. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'delhi-airport', collectGo: true } },
+  { id: 's-jfk-air',   text: 'Take a flight from JFK Airport. Collect ₹200 if you pass GO.', effect: { kind: 'moveTo', tileId: 'jfk-airport', collectGo: true } },
   { id: 's-chairman',  text: 'Elected society secretary. Pay each player ₹50.', effect: { kind: 'payEach', amount: 50 } },
   { id: 's-loan',      text: 'Your home loan was approved. Collect ₹150.', effect: { kind: 'collect', amount: 150 } },
 ]);

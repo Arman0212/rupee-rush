@@ -12,6 +12,8 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const fs = require('node:fs');
+const rules = require('../shared/rules');
+const { GAME_NAME, GAME_TAGLINE } = rules;
 
 const PUBLIC = path.join(__dirname, '..', 'public');
 // Inlined: a page set with setContent may not load file:// fonts.
@@ -22,32 +24,29 @@ const FONTS = `
 
 const coin = (size) => `
   <div style="width:${size}px;height:${size}px;border-radius:50%;display:grid;place-items:center;
-    background:radial-gradient(circle at 35% 30%,#f7c548,#f2952c 60%,#c96a12);box-shadow:0 0 0 ${size * 0.04}px #fffaf0,0 0 0 ${size * 0.07}px #0f7c74">
-    <div style="width:${size * 0.72}px;height:${size * 0.72}px;border-radius:50%;background:#2f3a8f;color:#fff;display:grid;place-items:center;
+    background:radial-gradient(circle at 35% 30%,#f7c548,#f2952c 60%,#c96a12);box-shadow:0 0 0 ${size * 0.04}px rgba(255,255,255,0.2),0 0 0 ${size * 0.07}px #6366f1">
+    <div style="width:${size * 0.72}px;height:${size * 0.72}px;border-radius:50%;background:#1e1b4b;color:#fff;display:grid;place-items:center;
       font:800 ${size * 0.5}px/1 'Baloo 2'">₹</div>
   </div>`;
 
 const OG = `<!doctype html><html><head><meta charset="utf-8"><style>${FONTS}
-  body { margin:0; width:1200px; height:630px; overflow:hidden; font-family:Inter; color:#2b2118;
+  body { margin:0; width:1200px; height:630px; overflow:hidden; font-family:Inter; color:#f8fafc;
     background:
-      radial-gradient(circle at 1px 1px, #ecdcbc 1.5px, transparent 2px) 0 0/22px 22px,
-      linear-gradient(135deg,#fbf3e2,#f2e2c2); }
+      radial-gradient(circle at 80% 20%, rgba(99, 102, 241, 0.25), transparent 50%),
+      linear-gradient(135deg, #0b0f19 0%, #1e1b4b 60%, #0f172a 100%); }
   .wrap { position:absolute; inset:0; display:flex; align-items:center; gap:56px; padding:0 90px; }
-  .rangoli { position:absolute; right:-140px; top:-90px; width:640px; height:640px; border-radius:50%; opacity:.55;
-    background:
-      radial-gradient(circle, transparent 0 14%, #f2952c 14.5% 15.5%, transparent 16% 27%, #0f7c74 27.5% 28.2%, transparent 28.7% 47%, #f2952c 47.5% 48.2%, transparent 48.7%),
-      repeating-conic-gradient(rgb(242 149 44 / .3) 0 6deg, transparent 6deg 15deg),
-      radial-gradient(circle, rgb(247 197 72 / .4) 0 13%, transparent 13.5%); }
-  h1 { font:800 120px/0.95 'Baloo 2'; color:#2f3a8f; margin:0; }
-  p { font:500 34px/1.3 Inter; color:#6a5b49; margin:18px 0 0; max-width:620px; }
-  .tiles { display:flex; gap:10px; margin-top:34px; }
-  .tile { width:78px; height:110px; border-radius:10px; background:#fdf8ec; border:2px solid #e3d2ae; overflow:hidden;
-    font:700 15px/1.1 Inter; text-align:center; display:flex; flex-direction:column; }
-  .tile span { flex:1; display:grid; place-items:center; padding:0 4px; }
+  .glow { position:absolute; right:-100px; top:-60px; width:640px; height:640px; border-radius:50%; opacity:.4;
+    background: radial-gradient(circle, #6366f1 0%, rgba(139, 92, 246, 0.3) 40%, transparent 70%); }
+  h1 { font:800 120px/0.95 'Baloo 2'; color:#ffffff; margin:0; text-shadow: 0 4px 24px rgba(99, 102, 241, 0.4); }
+  p { font:500 32px/1.3 Inter; color:#94a3b8; margin:18px 0 0; max-width:640px; }
+  .tiles { display:flex; gap:12px; margin-top:34px; }
+  .tile { width:82px; height:116px; border-radius:10px; background:#1e293b; border:2px solid #334155; overflow:hidden;
+    font:700 15px/1.1 Inter; text-align:center; display:flex; flex-direction:column; box-shadow: 0 8px 16px rgba(0,0,0,0.4); }
+  .tile span { flex:1; display:grid; place-items:center; padding:0 4px; color:#f8fafc; }
   .band { height:26px; }
-</style></head><body><div class="rangoli"></div><div class="wrap">${coin(260)}<div>
-  <h1>Rupee Rush</h1><p>Buy, build, bid and trade your way across India's cities.</p>
-  <div class="tiles">${[['#d93a3a', 'Goa'], ['#f2c94c', 'Pune'], ['#2e9e5b', 'Thane'], ['#2f4aa8', 'Mumbai'], ['#d9529b', 'Kochi']]
+</style></head><body><div class="glow"></div><div class="wrap">${coin(260)}<div>
+  <h1>${GAME_NAME}</h1><p>${GAME_TAGLINE}</p>
+  <div class="tiles">${[['#ef4444', 'Shanghai'], ['#f59e0b', 'Paris'], ['#10b981', 'London'], ['#3b82f6', 'New York'], ['#ec4899', 'Rome']]
     .map(([c, n]) => `<div class="tile"><div class="band" style="background:${c}"></div><span>${n}</span></div>`).join('')}</div>
 </div></div></body></html>`;
 

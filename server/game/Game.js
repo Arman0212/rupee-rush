@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Rupee Rush game engine.
+ * Monopoly game engine.
  *
  * A pure state machine: no networking, timers or I/O. Randomness comes from an
  * injected `rng` (anything with `next()` returning [0, 1)) and time from an
@@ -199,7 +199,7 @@ class Game {
   /** Restore a game saved with toJSON(). Throws on data that isn't a saved game. */
   static fromJSON(data, { rng, now } = {}) {
     if (!isObject(data) || data.version !== STATE_VERSION || !Array.isArray(data.players)) {
-      throw new Error('Game.fromJSON: not a saved Rupee Rush game');
+      throw new Error(`Game.fromJSON: not a saved ${rules.GAME_NAME} game`);
     }
     const { rngState, ...state } = cloneData(data);
     let restoredRng = rng;

@@ -40,11 +40,38 @@ check(BOARD[30].type === TILE.GO_TO_JAIL, 'tile 30 must be Go to Jail');
 const groupKeys = Object.keys(COLOR_GROUPS);
 check(groupKeys.length === 8, `expected 8 colour sets, found ${groupKeys.length}`);
 for (const g of groupKeys) {
+  const grp = COLOR_GROUPS[g];
+  check(grp.country && typeof grp.country.name === 'string' && grp.country.flag, `set ${g} missing country metadata`);
   const members = board.groupMembers(g);
   const size = members.length;
   const edge = g === 'brown' || g === 'darkBlue';
   check(size === (edge ? 2 : 3), `set ${g} has ${size} cities, expected ${edge ? 2 : 3}`);
 }
+
+const EXPECTED_CITIES = [
+  'salvador', 'rio',
+  'tel-aviv', 'haifa', 'jerusalem',
+  'venice', 'milan', 'rome',
+  'frankfurt', 'munich', 'berlin',
+  'shenzhen', 'beijing', 'shanghai',
+  'lyon', 'toulouse', 'paris',
+  'liverpool', 'manchester', 'london',
+  'california', 'new-york'
+];
+const actualCities = BOARD.filter((t) => t.type === TILE.CITY).map((t) => t.id);
+check(JSON.stringify(actualCities) === JSON.stringify(EXPECTED_CITIES), `cities mismatch: expected ${EXPECTED_CITIES.join(', ')}`);
+
+const EXPECTED_AIRPORTS = ['tlv-airport', 'muc-airport', 'cdg-airport', 'jfk-airport'];
+const actualAirports = BOARD.filter((t) => t.type === TILE.AIRPORT).map((t) => t.id);
+check(JSON.stringify(actualAirports) === JSON.stringify(EXPECTED_AIRPORTS), `airports mismatch`);
+
+const EXPECTED_UTILITIES = ['electric-company', 'water-company'];
+const actualUtilities = BOARD.filter((t) => t.type === TILE.UTILITY).map((t) => t.id);
+check(JSON.stringify(actualUtilities) === JSON.stringify(EXPECTED_UTILITIES), `utilities mismatch`);
+
+const EXPECTED_TAXES = ['income-tax', 'luxury-tax'];
+const actualTaxes = BOARD.filter((t) => t.type === TILE.TAX).map((t) => t.id);
+check(JSON.stringify(actualTaxes) === JSON.stringify(EXPECTED_TAXES), `tax mismatch`);
 
 let prevMaxPrice = 0;
 for (const g of groupKeys) {
@@ -97,6 +124,7 @@ for (const [deckName, deck] of Object.entries(DECKS)) {
 }
 
 // --- Rules -----------------------------------------------------------------
+check(rules.GAME_NAME === 'Monopoly', 'game name must be Monopoly');
 check(rules.DEFAULT_SETTINGS.startingCash === 1500, 'default starting cash should be ₹1500');
 check(rules.DEFAULT_SETTINGS.goSalary === 200, 'default GO salary should be ₹200');
 check(rules.unmortgageCost(200) === 110, 'unmortgage cost for a ₹200 property should be ₹110');

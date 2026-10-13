@@ -1,6 +1,6 @@
-# Rupee Rush
+# Monopoly
 
-An original multiplayer property-trading board game set in Indian cities.
+A multiplayer property-trading board game for friends.
 Node.js, Express, Socket.io and plain HTML/CSS/JS.
 
 ## Running

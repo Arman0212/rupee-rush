@@ -111,8 +111,8 @@ describe('RoomManager', () => {
 
 describe('payload validation', () => {
   test('accepts good payloads and keeps only known fields', () => {
-    assert.deepEqual(validatePayload(SCHEMAS.action, { type: 'build', tileId: 'patna', evil: 1 }), {
-      ok: true, value: { type: 'build', tileId: 'patna' },
+    assert.deepEqual(validatePayload(SCHEMAS.action, { type: 'build', tileId: 'salvador', evil: 1 }), {
+      ok: true, value: { type: 'build', tileId: 'salvador' },
     });
     assert.deepEqual(validatePayload(SCHEMAS.startGame, undefined), { ok: true, value: {} });
   });

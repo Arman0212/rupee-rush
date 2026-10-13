@@ -33,7 +33,7 @@ export function createLobbyScreen({ store, net, chat }) {
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     if (navigator.share && coarse) {
       try {
-        await navigator.share({ title: 'Rupee Rush', text: 'Join my Rupee Rush game!', url });
+        await navigator.share({ title: rules.GAME_NAME, text: `Join my ${rules.GAME_NAME} game!`, url });
         return;
       } catch { /* cancelled or unsupported: fall back to copying */ }
     }

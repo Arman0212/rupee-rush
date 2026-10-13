@@ -1,7 +1,7 @@
 {
-  "name": "rupee-rush",
+  "name": "monopoly-online",
   "version": "0.1.0",
-  "description": "Multiplayer property-trading board game set in Indian cities",
+  "description": "Monopoly — A multiplayer property-trading board game for friends. Buy cities, build, bid, trade and outlast everyone.",
   "main": "server/index.js",
   "private": true,
   "scripts": {

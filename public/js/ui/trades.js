@@ -101,15 +101,15 @@ export function createTrades({ store, act, sound, onOpenTab }) {
     const name = nameLookup(store.state);
     for (const e of events) {
       if (e.type === 'tradeProposed' && e.toId === me) {
-        toast(`${name(e.fromId)} sent you a trade offer.`, { kind: 'good' });
+        toast(`${name(e.fromId)} sent you a trade offer.`, { kind: 'good', important: true });
         sound.play('trade');
       }
       if (e.type === 'tradeAccepted' && e.fromId === me) {
-        toast(`${name(e.toId)} accepted your trade!`, { kind: 'good' });
+        toast(`${name(e.toId)} accepted your trade!`, { kind: 'good', important: true });
         sound.play('trade');
       }
-      if (e.type === 'tradeDeclined' && e.fromId === me) toast(`${name(e.toId)} ${e.countered ? 'countered' : 'declined'} your trade.`);
-      if (e.type === 'tradeCancelled' && e.reason !== 'withdrawn' && (e.fromId === me || e.toId === me)) toast(`Trade cancelled: ${e.reason}.`, { kind: 'bad' });
+      if (e.type === 'tradeDeclined' && e.fromId === me) toast(`${name(e.toId)} ${e.countered ? 'countered' : 'declined'} your trade.`, { important: true });
+      if (e.type === 'tradeCancelled' && e.reason !== 'withdrawn' && (e.fromId === me || e.toId === me)) toast(`Trade cancelled: ${e.reason}.`, { kind: 'bad', important: true });
     }
   });
 

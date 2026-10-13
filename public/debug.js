@@ -1,4 +1,4 @@
-/* Rupee Rush debug client. Temporary: Phase 4 replaces it.
+/* Monopoly debug client. Temporary: Phase 4 replaces it.
  * Every bit of user-supplied text goes through textContent, never innerHTML. */
 'use strict';
 

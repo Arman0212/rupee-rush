@@ -55,9 +55,9 @@ describe('money cards', () => {
     const { game } = draw({
       deck: 'surprise', card: 's-repairs', from: 4,
       prepare: (g) => {
-        own(g, 'p1', 'patna', 'bhopal');
-        prop(g, 'patna').buildings = 5; // a hotel: ₹100
-        prop(g, 'bhopal').buildings = 4; // four houses: 4 × ₹25
+        own(g, 'p1', 'salvador', 'rio');
+        prop(g, 'salvador').buildings = 5; // a hotel: ₹100
+        prop(g, 'rio').buildings = 4; // four houses: 4 × ₹25
       },
     });
     assert.equal(player(game, 'p1').cash, 1300);
@@ -66,12 +66,12 @@ describe('money cards', () => {
 
 describe('movement cards', () => {
   test('moveTo: advance, collecting GO salary when passing it, then resolve the tile', () => {
-    const { game, events } = draw({ deck: 'surprise', card: 's-indore', from: 19 }); // 22 -> 11
+    const { game, events } = draw({ deck: 'surprise', card: 's-venice', from: 19 }); // 22 -> 11
     assert.equal(player(game, 'p1').position, 11);
     assert.equal(findEvent(events, 'moneyCollected').reason, 'goSalary');
     assert.equal(player(game, 'p1').cash, 1700);
     assert.equal(game.state.phase, 'buyDecision');
-    assert.equal(game.state.turn.pendingTileId, 'indore');
+    assert.equal(game.state.turn.pendingTileId, 'venice');
   });
 
   test('moveTo GO pays the salary exactly once', () => {
@@ -82,7 +82,7 @@ describe('movement cards', () => {
   });
 
   test('moveTo without passing GO pays no salary and charges rent', () => {
-    const { game, events } = draw({ deck: 'surprise', card: 's-mumbai', from: 32, dice: [[1, 3]], prepare: (g) => own(g, 'p2', 'mumbai') });
+    const { game, events } = draw({ deck: 'surprise', card: 's-new-york', from: 32, dice: [[1, 3]], prepare: (g) => own(g, 'p2', 'new-york') });
     assert.equal(findEvent(events, 'moneyCollected'), undefined);
     assert.equal(findEvent(events, 'rentPaid').amount, 50);
   });
@@ -131,16 +131,16 @@ describe('movement cards', () => {
 
 describe('nearest airport / utility', () => {
   test('nearest airport charges double rent', () => {
-    const { events } = draw({ deck: 'surprise', card: 's-airport-1', from: 4, prepare: (g) => own(g, 'p2', 'kolkata-airport') });
+    const { events } = draw({ deck: 'surprise', card: 's-airport-1', from: 4, prepare: (g) => own(g, 'p2', 'muc-airport') });
     const rent = findEvent(events, 'rentPaid');
-    assert.equal(rent.tileId, 'kolkata-airport');
+    assert.equal(rent.tileId, 'muc-airport');
     assert.equal(rent.amount, 50); // 25 × 2
   });
 
   test('nearest airport doubles the rent for several airports too', () => {
     const { events } = draw({
       deck: 'surprise', card: 's-airport-2', from: 4,
-      prepare: (g) => own(g, 'p2', 'kolkata-airport', 'delhi-airport', 'chennai-airport'),
+      prepare: (g) => own(g, 'p2', 'muc-airport', 'jfk-airport', 'tlv-airport'),
     });
     assert.equal(findEvent(events, 'rentPaid').amount, 200); // 100 × 2
   });
@@ -155,7 +155,7 @@ describe('nearest airport / utility', () => {
   test('nearest utility rolls fresh dice and charges 10x, even for one utility', () => {
     const { game, events } = draw({
       deck: 'surprise', card: 's-utility', from: 4, dice: [[1, 2], [3, 4]],
-      prepare: (g) => own(g, 'p2', 'electricity-board'),
+      prepare: (g) => own(g, 'p2', 'electric-company'),
     });
     const rolls = events.filter((e) => e.type === 'diceRolled');
     assert.deepEqual(rolls.map((r) => r.reason), ['move', 'utilityCard']);
@@ -165,7 +165,7 @@ describe('nearest airport / utility', () => {
 
   test('nearest utility, unowned: offered for sale, no extra dice', () => {
     const { game, events } = draw({ deck: 'surprise', card: 's-utility', from: 4 }); // rigged dice would throw if rolled
-    assert.equal(game.state.turn.pendingTileId, 'electricity-board');
+    assert.equal(game.state.turn.pendingTileId, 'electric-company');
     assert.deepEqual(eventTypes(events).filter((t) => t === 'diceRolled'), ['diceRolled']);
   });
 });
@@ -180,7 +180,7 @@ describe('fines and the jackpot', () => {
   test('repairs also feed the jackpot', () => {
     const { game } = draw({
       deck: 'surprise', card: 's-repairs', from: 4, settings: { vacationJackpot: true },
-      prepare: (g) => { own(g, 'p1', 'patna', 'bhopal'); prop(g, 'patna').buildings = 1; prop(g, 'bhopal').buildings = 1; },
+      prepare: (g) => { own(g, 'p1', 'salvador', 'rio'); prop(g, 'salvador').buildings = 1; prop(g, 'rio').buildings = 1; },
     });
     assert.equal(game.state.jackpot, 50);
   });

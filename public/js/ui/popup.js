@@ -111,15 +111,19 @@ export function createTilePopup({ store, act, onProposeTrade }) {
   function show(tileId) {
     if (open) open.handle.close();
     const tile = getTileById(tileId);
-    const band = tile.group && COLOR_GROUPS[tile.group] ? COLOR_GROUPS[tile.group].color : 'var(--indigo)';
+    const country = tile.type === TILE.CITY && COLOR_GROUPS[tile.group] && COLOR_GROUPS[tile.group].country;
+    const titleText = country ? `${tile.name}, ${country.name}` : tile.name;
+    const groupText = country ? `${country.flag} ${COLOR_GROUPS[tile.group].name}` : (tile.group ? groupName(tile.group) : '');
+    const groupVar = tile.group === 'lightBlue' ? 'light-blue' : tile.group === 'darkBlue' ? 'dark-blue' : tile.group;
+    const band = tile.group ? `var(--set-${groupVar}, ${COLOR_GROUPS[tile.group].color})` : 'var(--primary)';
     const content = el('div', { className: 'popup-body' });
     const header = el('header', { className: 'popup-head', style: { '--band': band } },
-      el('p', { className: 'popup-group', text: tile.group ? groupName(tile.group) : '' }),
-      el('h2', { className: 'popup-title', text: tile.name }));
+      el('p', { className: 'popup-group', text: groupText }),
+      el('h2', { className: 'popup-title', text: titleText }));
     const closeBtn = el('button', { className: 'icon-btn popup-close', type: 'button', text: '×', attrs: { 'aria-label': 'Close' } });
     const handle = openDialog({
       className: 'dialog-tile',
-      label: tile.name,
+      label: titleText,
       content: [closeBtn, header, content],
       onClose: () => {
         if (open && open.handle === handle) {

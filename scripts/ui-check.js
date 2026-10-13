@@ -128,8 +128,25 @@ async function main() {
     }
     say('game started on every page');
 
+    // --- Verify no toast or card banner overlaps the board at any viewport size ---
+    for (const p of players) {
+      await p.page.evaluate(async () => {
+        const { toast, showCardBanner } = await import('/js/ui/toast.js');
+        toast('Passed GO: collected ₹200 salary', { kind: 'good' });
+        toast('Rent payment: ₹150 to New York');
+        showCardBanner({ deck: 'surprise', text: 'Advance to New York. If you pass GO, collect ₹200.', who: 'Test' });
+      });
+      await sleep(250);
+      await assertNoBoardOverlap(p, 'explicit toast + card stack');
+      await p.page.evaluate(() => {
+        document.querySelectorAll('.toasts .toast, .toasts .card-banner').forEach((el) => el.click());
+      });
+      await sleep(200);
+    }
+    say('no toast or card banner overlaps the board at any of the three viewport sizes');
+
     // --- Keyboard: open a tile popup with Enter, close with Escape --------------------------
-    await host.page.focus('[data-tile-id="jaipur"]');
+    await host.page.focus('[data-tile-id="jerusalem"]');
     await host.page.keyboard.press('Enter');
     await host.page.waitForSelector('dialog.dialog-tile[open]');
     await shot(host, 'tile-popup');
@@ -172,7 +189,10 @@ async function main() {
     say(`played to turn ${finalTurn} with ${clicks} clicks on generated buttons`);
 
     // Once play stops, the animated page must show exactly what the others show.
-    await sleep(3000);
+    for (const p of players) {
+      await p.page.waitForFunction(() => !document.body.dataset.animating, null, { timeout: 10_000 }).catch(() => {});
+    }
+    await sleep(1500);
     const tokenMap = (p) => p.page.$$eval('.token', (ts) => ts.map((t) => `${t.dataset.player}@${t.dataset.position}${t.dataset.jail === 'true' ? 'J' : ''}`).sort().join(' '));
     const reference = await tokenMap(players[1]);
     for (const p of players) {
@@ -208,6 +228,40 @@ async function main() {
   console.log('\n✓ UI check passed: no console errors, no sideways scrolling');
 }
 
+/** Check that no toast or card banner intersects the board bounding box. */
+async function assertNoBoardOverlap(p, contextDesc = '') {
+  const overlap = await p.page.evaluate(() => {
+    const board = document.querySelector('#board');
+    if (!board) return null;
+    const bRect = board.getBoundingClientRect();
+    if (bRect.width === 0 || bRect.height === 0) return null;
+
+    const items = [...document.querySelectorAll('.toasts .toast, .toasts .card-banner, .card-banner')];
+    for (const item of items) {
+      const iRect = item.getBoundingClientRect();
+      if (iRect.width === 0 || iRect.height === 0) continue;
+      const intersects = !(
+        iRect.right <= bRect.left ||
+        iRect.left >= bRect.right ||
+        iRect.bottom <= bRect.top ||
+        iRect.top >= bRect.bottom
+      );
+      if (intersects) {
+        return {
+          itemText: item.textContent.trim().slice(0, 40),
+          itemRect: { left: iRect.left, right: iRect.right, top: iRect.top, bottom: iRect.bottom },
+          boardRect: { left: bRect.left, right: bRect.right, top: bRect.top, bottom: bRect.bottom }
+        };
+      }
+    }
+    return null;
+  });
+
+  if (overlap) {
+    errors.push(`[${p.label}] ${contextDesc} toast/card overlaps board: "${overlap.itemText}"`);
+  }
+}
+
 /** Close drawn-card popups, as a player would after reading them. */
 async function closeCards(page) {
   await page.evaluate(() => document.querySelectorAll('dialog.dialog-card[open]').forEach((d) => d.close()));
@@ -220,6 +274,7 @@ async function waitIdle(page) {
 /** Click one generated button for this player if there is something to do. */
 async function takeTurnStep(p) {
   const { page } = p;
+  await assertNoBoardOverlap(p, 'during play');
   await closeCards(page);
   const container = p.mobile ? '#mobile-actions' : '#center-actions';
   if (p.mobile && !(await page.isVisible(container))) await page.click('#tab-actions');
@@ -403,7 +458,7 @@ async function midGameShots(players, shot, noSideScroll) {
   // Tile popup on the phone, for an owned city if there is one.
   const p3 = players[2];
   const owned = await p3.page.$('.tile.owned');
-  await (owned || (await p3.page.$('[data-tile-id="mumbai"]'))).click();
+  await (owned || (await p3.page.$('[data-tile-id="new-york"]'))).click();
   await p3.page.waitForSelector('dialog.dialog-tile[open]');
   await shot(p3, 'tile-popup');
   await p3.page.keyboard.press('Escape');

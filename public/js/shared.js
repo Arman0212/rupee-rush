@@ -2,7 +2,7 @@
 // before any module runs, and exposed on window.RR. Re-export it for imports.
 const RR = window.RR;
 if (!RR || !RR.board || !RR.cards || !RR.rules) {
-  throw new Error('Rupee Rush: shared data failed to load');
+  throw new Error('Monopoly: shared data failed to load');
 }
 
 export const board = RR.board;

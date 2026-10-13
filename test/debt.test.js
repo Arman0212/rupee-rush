@@ -10,13 +10,13 @@ const debtOf = (game, id) => {
   return { amount, creditorId };
 };
 
-/** p1 lands on Goa (p2, two houses: ₹250 rent) holding only `cash`. */
+/** p1 lands on Beijing (p2, two houses: ₹250 rent) holding only `cash`. */
 function owesRent({ cash = 10, players = 2, dice = [1, 2] } = {}) {
   const game = setup({ players, dice: [dice] });
-  own(game, 'p2', 'kolkata', 'goa', 'chennai');
-  prop(game, 'goa').buildings = 2;
-  prop(game, 'kolkata').buildings = 2;
-  prop(game, 'chennai').buildings = 2;
+  own(game, 'p2', 'shenzhen', 'beijing', 'shanghai');
+  prop(game, 'beijing').buildings = 2;
+  prop(game, 'shenzhen').buildings = 2;
+  prop(game, 'shanghai').buildings = 2;
   place(game, 'p1', 23 - dice[0] - dice[1]);
   player(game, 'p1').cash = cash;
   const before = totalMoney(game);
@@ -48,13 +48,13 @@ describe('debt', () => {
 
   test('selling and mortgaging pay the creditor directly', () => {
     const { game, before } = owesRent();
-    own(game, 'p1', 'patna', 'bhopal', 'mumbai');
-    prop(game, 'patna').buildings = 1;
-    prop(game, 'bhopal').buildings = 1;
-    act(game, 'p1', 'sellHouse', { tileId: 'patna' }); // +25
+    own(game, 'p1', 'salvador', 'rio', 'new-york');
+    prop(game, 'salvador').buildings = 1;
+    prop(game, 'rio').buildings = 1;
+    act(game, 'p1', 'sellHouse', { tileId: 'salvador' }); // +25
     assert.equal(player(game, 'p2').cash, 1535);
     assert.deepEqual(debtOf(game, 'p1'), { amount: 215, creditorId: 'p2' });
-    const events = act(game, 'p1', 'mortgage', { tileId: 'mumbai' }); // +200
+    const events = act(game, 'p1', 'mortgage', { tileId: 'new-york' }); // +200
     assert.deepEqual(eventTypes(events), ['mortgaged', 'debtPaid']);
     assert.equal(player(game, 'p1').cash, -15);
     assert.equal(player(game, 'p2').cash, 1735);
@@ -63,8 +63,8 @@ describe('debt', () => {
 
   test('clearing the debt keeps any surplus and allows endTurn again', () => {
     const { game } = owesRent({ cash: 100 });
-    own(game, 'p1', 'mumbai');
-    const events = act(game, 'p1', 'mortgage', { tileId: 'mumbai' }); // +200 against 150 owed
+    own(game, 'p1', 'new-york');
+    const events = act(game, 'p1', 'mortgage', { tileId: 'new-york' }); // +200 against 150 owed
     assert.ok(eventTypes(events).includes('debtCleared'));
     assert.equal(player(game, 'p1').cash, 50);
     assert.equal(player(game, 'p2').cash, 1750);
@@ -84,13 +84,13 @@ describe('debt', () => {
     place(game, 'p1', 14);
     stackDeck(game, 'treasure', 't-birthday');
     player(game, 'p2').cash = 4;
-    own(game, 'p2', 'mumbai', 'new-delhi');
+    own(game, 'p2', 'new-york', 'california');
     act(game, 'p1', 'roll');
     assert.deepEqual(debtOf(game, 'p2'), { amount: 6, creditorId: 'p1' });
     const p2Legal = game.getLegalActions('p2').map((a) => a.type);
     assert.deepEqual([...new Set(p2Legal)], ['bankrupt', 'mortgage']);
-    assert.equal(reject(game, 'p2', 'build', { tileId: 'mumbai' }), 'not your turn');
-    act(game, 'p2', 'mortgage', { tileId: 'mumbai' });
+    assert.equal(reject(game, 'p2', 'build', { tileId: 'new-york' }), 'not your turn');
+    act(game, 'p2', 'mortgage', { tileId: 'new-york' });
     assert.equal(player(game, 'p2').cash, 194);
     assert.equal(player(game, 'p1').cash, 1500 + 10 + 10);
   });
@@ -99,9 +99,9 @@ describe('debt', () => {
     const game = setup({ dice: [[1, 3]] });
     Object.assign(player(game, 'p2'), { cash: -100 });
     player(game, 'p2').debt = { amount: 100, creditorId: null, owed: [{ creditorId: null, amount: 100 }] };
-    own(game, 'p2', 'kolkata'); // rent 18
+    own(game, 'p2', 'shenzhen'); // rent 18
     place(game, 'p1', 17);
-    act(game, 'p1', 'roll'); // 17 -> 21 Kolkata
+    act(game, 'p1', 'roll'); // 17 -> 21 Shenzhen
     assert.equal(player(game, 'p2').cash, -82);
     assert.deepEqual(debtOf(game, 'p2'), { amount: 82, creditorId: null });
   });
@@ -115,10 +115,10 @@ describe('debt', () => {
 describe('bankruptcy', () => {
   test('to a player: buildings sell at half value, cash, property and cards pass to the creditor', () => {
     const { game, before } = owesRent({ players: 3 });
-    own(game, 'p1', 'patna', 'bhopal', 'nagpur');
-    prop(game, 'patna').buildings = 2;
-    prop(game, 'bhopal').buildings = 2; // 4 houses × ₹25 back = ₹100
-    prop(game, 'nagpur').mortgaged = true;
+    own(game, 'p1', 'salvador', 'rio', 'tel-aviv');
+    prop(game, 'salvador').buildings = 2;
+    prop(game, 'rio').buildings = 2; // 4 houses × ₹25 back = ₹100
+    prop(game, 'tel-aviv').mortgaged = true;
     player(game, 'p1').jailFreeCards.push({ deck: 'surprise', cardId: 's-jailfree' });
 
     const events = act(game, 'p1', 'bankrupt');
@@ -128,9 +128,9 @@ describe('bankruptcy', () => {
     assert.equal(p1.cash, 0);
     assert.deepEqual(debtOf(game, 'p1'), { amount: 0, creditorId: null });
     assert.equal(p2.cash, 1510 + 100);
-    for (const id of ['patna', 'bhopal', 'nagpur']) assert.equal(prop(game, id).ownerId, 'p2');
-    assert.equal(prop(game, 'patna').buildings, 0);
-    assert.equal(prop(game, 'nagpur').mortgaged, true);
+    for (const id of ['salvador', 'rio', 'tel-aviv']) assert.equal(prop(game, id).ownerId, 'p2');
+    assert.equal(prop(game, 'salvador').buildings, 0);
+    assert.equal(prop(game, 'tel-aviv').mortgaged, true);
     assert.deepEqual(p2.jailFreeCards, [{ deck: 'surprise', cardId: 's-jailfree' }]);
     assert.equal(totalMoney(game), before + 100);
     // The turn passes on to the next live player.
@@ -140,9 +140,9 @@ describe('bankruptcy', () => {
 
   test('to a player: leftover cash after selling buildings goes to the creditor', () => {
     const { game } = owesRent({ players: 3, cash: 200 }); // owes 50
-    own(game, 'p1', 'patna', 'bhopal');
-    prop(game, 'patna').buildings = 4;
-    prop(game, 'bhopal').buildings = 4; // ₹200 back: 50 clears the debt, 150 left over
+    own(game, 'p1', 'salvador', 'rio');
+    prop(game, 'salvador').buildings = 4;
+    prop(game, 'rio').buildings = 4; // ₹200 back: 50 clears the debt, 150 left over
     act(game, 'p1', 'bankrupt');
     assert.equal(player(game, 'p2').cash, 1500 + 250 + 150);
   });
@@ -150,10 +150,10 @@ describe('bankruptcy', () => {
   test('to the bank: property returns unowned and unmortgaged, buildings vanish, cards go back', () => {
     const game = setup({ players: 3, dice: [[1, 3]] });
     player(game, 'p1').cash = 50;
-    own(game, 'p1', 'patna', 'bhopal', 'nagpur');
-    prop(game, 'patna').buildings = 1;
-    prop(game, 'bhopal').buildings = 1;
-    prop(game, 'nagpur').mortgaged = true;
+    own(game, 'p1', 'salvador', 'rio', 'tel-aviv');
+    prop(game, 'salvador').buildings = 1;
+    prop(game, 'rio').buildings = 1;
+    prop(game, 'tel-aviv').mortgaged = true;
     game.state.decks.treasure = game.state.decks.treasure.filter((id) => id !== 't-jailfree');
     player(game, 'p1').jailFreeCards.push({ deck: 'treasure', cardId: 't-jailfree' });
     act(game, 'p1', 'roll'); // Income Tax: owes the bank 150
@@ -161,7 +161,7 @@ describe('bankruptcy', () => {
 
     const events = act(game, 'p1', 'bankrupt');
     assert.equal(findEvent(events, 'bankrupt').creditorId, null);
-    for (const id of ['patna', 'bhopal', 'nagpur']) {
+    for (const id of ['salvador', 'rio', 'tel-aviv']) {
       assert.deepEqual(prop(game, id), { ownerId: null, buildings: 0, mortgaged: false });
     }
     assert.equal(game.state.decks.treasure.at(-1), 't-jailfree');
@@ -217,14 +217,14 @@ describe('removePlayer', () => {
 
   test('mid-turn it is bankruptcy to the bank and the turn passes on', () => {
     const game = setup({ players: 3, dice: [[2, 4]] });
-    own(game, 'p1', 'patna');
-    act(game, 'p1', 'roll'); // buyDecision on Nagpur
+    own(game, 'p1', 'salvador');
+    act(game, 'p1', 'roll'); // buyDecision on Tel Aviv
     const { ok, events } = game.removePlayer('p1');
     assert.ok(ok);
     assert.deepEqual(eventTypes(events), ['playerLeft', 'propertyReturned', 'moneyPaid', 'bankrupt', 'turnStarted']);
     assert.equal(player(game, 'p1').left, true);
     assert.equal(player(game, 'p1').bankrupt, true);
-    assert.equal(prop(game, 'patna').ownerId, null);
+    assert.equal(prop(game, 'salvador').ownerId, null);
     assert.equal(game.state.currentPlayerId, 'p2');
     assert.equal(game.state.phase, 'awaitingRoll');
     assert.equal(game.state.turn.pendingTileId, null);
@@ -232,9 +232,9 @@ describe('removePlayer', () => {
 
   test('always goes to the bank, even when the leaver owes a player', () => {
     const { game } = owesRent({ players: 3 });
-    own(game, 'p1', 'patna');
+    own(game, 'p1', 'salvador');
     game.removePlayer('p1');
-    assert.equal(prop(game, 'patna').ownerId, null);
+    assert.equal(prop(game, 'salvador').ownerId, null);
   });
 
   test('a player who is not on turn leaving does not disturb the turn', () => {
@@ -294,11 +294,11 @@ describe('vacation jackpot', () => {
   test('an unpaid tax owed to the jackpot is paid into the jackpot later', () => {
     const game = setup({ settings: { vacationJackpot: true }, dice: [[1, 3]] });
     player(game, 'p1').cash = 50;
-    own(game, 'p1', 'mumbai');
+    own(game, 'p1', 'new-york');
     act(game, 'p1', 'roll');
     assert.equal(game.state.jackpot, 50);
     assert.deepEqual(debtOf(game, 'p1'), { amount: 150, creditorId: 'jackpot' });
-    act(game, 'p1', 'mortgage', { tileId: 'mumbai' });
+    act(game, 'p1', 'mortgage', { tileId: 'new-york' });
     assert.equal(game.state.jackpot, 200);
     assert.equal(player(game, 'p1').cash, 50);
   });

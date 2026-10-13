@@ -77,14 +77,14 @@ describe('rolling and moving', () => {
 
   test('landing on an unowned property offers it; buying deducts the price', () => {
     const game = setup({ dice: [[2, 4]] });
-    act(game, 'p1', 'roll'); // 0 -> 6 Nagpur (₹100)
+    act(game, 'p1', 'roll'); // 0 -> 6 Tel Aviv (₹100)
     assert.equal(game.state.phase, 'buyDecision');
-    assert.equal(game.state.turn.pendingTileId, 'nagpur');
+    assert.equal(game.state.turn.pendingTileId, 'tel-aviv');
     reject(game, 'p1', 'endTurn');
     const events = act(game, 'p1', 'buy');
-    assert.deepEqual(findEvent(events, 'propertyBought'), { type: 'propertyBought', from: 'p1', to: null, amount: 100, tileId: 'nagpur', at: 1000 });
+    assert.deepEqual(findEvent(events, 'propertyBought'), { type: 'propertyBought', from: 'p1', to: null, amount: 100, tileId: 'tel-aviv', at: 1000 });
     assert.equal(player(game, 'p1').cash, 1400);
-    assert.equal(prop(game, 'nagpur').ownerId, 'p1');
+    assert.equal(prop(game, 'tel-aviv').ownerId, 'p1');
     assert.equal(game.state.phase, 'awaitingEnd');
   });
 
@@ -92,7 +92,7 @@ describe('rolling and moving', () => {
     const game = setup({ dice: [[2, 4]] });
     act(game, 'p1', 'roll');
     act(game, 'p1', 'decline');
-    assert.equal(prop(game, 'nagpur').ownerId, null);
+    assert.equal(prop(game, 'tel-aviv').ownerId, null);
     assert.equal(player(game, 'p1').cash, 1500);
     assert.equal(game.state.phase, 'awaitingEnd');
   });
@@ -119,7 +119,7 @@ describe('rolling and moving', () => {
   test('passing GO pays the salary', () => {
     const game = setup({ dice: [[1, 2]] });
     place(game, 'p1', 38);
-    const events = act(game, 'p1', 'roll'); // 38 -> 1 Patna
+    const events = act(game, 'p1', 'roll'); // 38 -> 1 Salvador
     assert.equal(findEvent(events, 'moved').passedGo, true);
     assert.equal(findEvent(events, 'moneyCollected').reason, 'goSalary');
     assert.equal(player(game, 'p1').cash, 1700);
@@ -140,7 +140,7 @@ describe('rolling and moving', () => {
     act(game, 'p1', 'roll'); // 10 -> 20 Vacation
     assert.equal(game.state.phase, 'awaitingRoll');
     reject(game, 'p1', 'endTurn');
-    act(game, 'p1', 'roll'); // 20 -> 24 Chennai
+    act(game, 'p1', 'roll'); // 20 -> 24 Shanghai
     assert.equal(game.state.phase, 'buyDecision');
     act(game, 'p1', 'decline');
     assert.equal(game.state.phase, 'awaitingEnd'); // 1+3 was not a double
@@ -148,7 +148,7 @@ describe('rolling and moving', () => {
 
   test('doubles then a buy decision returns to awaitingRoll', () => {
     const game = setup({ dice: [[3, 3]] });
-    act(game, 'p1', 'roll'); // 0 -> 6 Nagpur
+    act(game, 'p1', 'roll'); // 0 -> 6 Tel Aviv
     act(game, 'p1', 'buy');
     assert.equal(game.state.phase, 'awaitingRoll');
   });
@@ -157,7 +157,7 @@ describe('rolling and moving', () => {
     const game = setup({ dice: [[5, 5], [2, 2], [3, 3]] });
     place(game, 'p1', 10);
     act(game, 'p1', 'roll'); // -> 20 Vacation
-    act(game, 'p1', 'roll'); // -> 24 Chennai
+    act(game, 'p1', 'roll'); // -> 24 Shanghai
     act(game, 'p1', 'decline');
     const events = act(game, 'p1', 'roll');
     const p1 = player(game, 'p1');
@@ -174,14 +174,14 @@ describe('rolling and moving', () => {
     const game = setup({ dice: [[5, 5], [2, 2], [1, 2], [4, 6], [1, 1]] });
     place(game, 'p1', 10);
     act(game, 'p1', 'roll'); // double: 10 -> 20
-    act(game, 'p1', 'roll'); // double: 20 -> 24 Chennai
+    act(game, 'p1', 'roll'); // double: 20 -> 24 Shanghai
     act(game, 'p1', 'decline');
-    act(game, 'p1', 'roll'); // 24 -> 27 Noida
+    act(game, 'p1', 'roll'); // 24 -> 27 Toulouse
     act(game, 'p1', 'decline');
     act(game, 'p1', 'endTurn');
     act(game, 'p2', 'roll'); // 0 -> 10, just visiting
     act(game, 'p2', 'endTurn');
-    act(game, 'p1', 'roll'); // a double again, but only the first this turn: 27 -> 29 Gurugram
+    act(game, 'p1', 'roll'); // a double again, but only the first this turn: 27 -> 29 Paris
     assert.equal(player(game, 'p1').inJail, false);
     assert.equal(player(game, 'p1').position, 29);
   });
@@ -204,7 +204,7 @@ describe('validation', () => {
 
   test('dispatch never throws on garbage input', () => {
     const game = setup();
-    own(game, 'p1', 'patna');
+    own(game, 'p1', 'salvador');
     const junk = [
       undefined, null, 0, 'roll', [], {}, { type: 5 }, { type: 'nope' }, { type: '__proto__' }, { type: 'constructor' },
       { type: 'build' }, { type: 'build', tileId: 3 }, { type: 'build', tileId: {} }, { type: 'mortgage', tileId: '__proto__' },

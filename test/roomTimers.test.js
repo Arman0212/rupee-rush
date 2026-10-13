@@ -87,29 +87,29 @@ describe('turn timer', () => {
 
   test('a player in debt mortgages first: unbuilt tiles in sets without buildings, cheapest first', () => {
     const { room, clock, transport } = startedRoom({ settings: { turnTimerSeconds: 15 } });
-    const debtor = inDebtWith(room, -100, { patna: 1, bhopal: 1, 'new-delhi': 0, mumbai: 0, 'delhi-airport': 0 });
+    const debtor = inDebtWith(room, -100, { salvador: 1, rio: 1, california: 0, 'new-york': 0, 'jfk-airport': 0 });
     clock.advance(15_000);
     const events = transport.last('s1', 'state').events;
-    // Delhi Airport (₹200, mortgage ₹100) is the cheapest mortgageable tile and clears the debt alone.
-    assert.deepEqual(events.filter((e) => e.type === 'mortgaged').map((e) => e.tileId), ['delhi-airport']);
+    // JFK Airport (₹200, mortgage ₹100) is the cheapest mortgageable tile and clears the debt alone.
+    assert.deepEqual(events.filter((e) => e.type === 'mortgaged').map((e) => e.tileId), ['jfk-airport']);
     assert.equal(events.some((e) => e.type === 'houseSold'), false);
     assert.equal(debtor.cash, 0);
-    assert.equal(room.game.state.properties.mumbai.mortgaged, false);
+    assert.equal(room.game.state.properties['new-york'].mortgaged, false);
     assert.equal(debtor.bankrupt, false);
   });
 
   test('then buildings are sold evenly from the cheapest set, and the cleared set is mortgaged next', () => {
     const { room, clock, transport } = startedRoom({ settings: { turnTimerSeconds: 15 } });
-    const debtor = inDebtWith(room, -60, { patna: 1, bhopal: 1, indore: 1, kochi: 1, chandigarh: 1 });
+    const debtor = inDebtWith(room, -60, { salvador: 1, rio: 1, venice: 1, milan: 1, rome: 1 });
     clock.advance(15_000);
     const events = transport.last('s1', 'state').events;
     const steps = events.filter((e) => e.type === 'houseSold' || e.type === 'mortgaged').map((e) => `${e.type}:${e.tileId}`);
     // Every set has buildings, so sell brown (₹50 houses) first: -60 + 25 + 25 = -10;
-    // brown is now bare, so mortgage Patna (+₹30) rather than sell a pink house.
-    assert.deepEqual(steps, ['houseSold:patna', 'houseSold:bhopal', 'mortgaged:patna']);
+    // brown is now bare, so mortgage Salvador (+₹30) rather than sell a pink house.
+    assert.deepEqual(steps, ['houseSold:salvador', 'houseSold:rio', 'mortgaged:salvador']);
     assert.equal(debtor.cash, 20);
     const props = room.game.state.properties;
-    assert.deepEqual(['indore', 'kochi', 'chandigarh'].map((id) => props[id].buildings), [1, 1, 1]);
+    assert.deepEqual(['venice', 'milan', 'rome'].map((id) => props[id].buildings), [1, 1, 1]);
     // Then the normal timeout order carries on and the turn passes.
     assert.ok(events.some((e) => e.type === 'turnEnded' && e.playerId === debtor.id));
     assert.notEqual(room.game.state.currentPlayerId, debtor.id);
@@ -117,14 +117,14 @@ describe('turn timer', () => {
 
   test('bankruptcy only if mortgaging and selling everything cannot clear the debt', () => {
     const { room, clock, transport } = startedRoom({ players: 3, settings: { turnTimerSeconds: 15 } });
-    const debtor = inDebtWith(room, -1000, { patna: 1, bhopal: 1, 'new-delhi': 0, mumbai: 0 });
+    const debtor = inDebtWith(room, -1000, { salvador: 1, rio: 1, california: 0, 'new-york': 0 });
     clock.advance(15_000);
     const events = transport.last('s1', 'state').events;
     const steps = events.filter((e) => e.type === 'houseSold' || e.type === 'mortgaged').map((e) => `${e.type}:${e.tileId}`);
     assert.deepEqual(steps, [
-      'mortgaged:new-delhi', 'mortgaged:mumbai', // unbuilt set first, cheapest first
-      'houseSold:patna', 'houseSold:bhopal', // then the buildings
-      'mortgaged:patna', 'mortgaged:bhopal', // then the tiles they stood on
+      'mortgaged:california', 'mortgaged:new-york', // unbuilt set first, cheapest first
+      'houseSold:salvador', 'houseSold:rio', // then the buildings
+      'mortgaged:salvador', 'mortgaged:rio', // then the tiles they stood on
     ]);
     const types = events.map((e) => e.type);
     assert.ok(types.lastIndexOf('mortgaged') < types.indexOf('bankrupt'));

@@ -18,6 +18,8 @@ const { RoomManager } = require('./rooms/RoomManager');
 const { attachHandlers, createTransport } = require('./net/handlers');
 const { normalizeCode } = require('./net/validate');
 const { createLogger } = require('./log');
+const rules = require('../shared/rules');
+const { GAME_NAME, GAME_TAGLINE } = rules;
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SHARED_DIR = path.join(__dirname, '..', 'shared'); // UMD files, loaded by the browser as window.RR
@@ -43,8 +45,8 @@ function indexRenderer() {
   return (req, code) => {
     const origin = `${req.protocol}://${req.host}`;
     const fields = code
-      ? { TITLE: `Join my Rupee Rush game · room ${code}`, DESCRIPTION: 'Tap to join the room, pick a colour and start trading cities across India.' }
-      : { TITLE: 'Rupee Rush · trade your way across India', DESCRIPTION: "A multiplayer property-trading game for friends. Buy cities, build, bid, trade and outlast everyone." };
+      ? { TITLE: `Join my ${GAME_NAME} game · room ${code}`, DESCRIPTION: 'Tap to join the room, pick a colour and start trading cities across the world.' }
+      : { TITLE: `${GAME_NAME} · ${GAME_TAGLINE}`, DESCRIPTION: 'A multiplayer property-trading game for friends. Buy cities, build, bid, trade and outlast everyone.' };
     fields.ORIGIN = origin;
     fields.URL = `${origin}${code ? `/r/${code}` : '/'}`;
     return template().replace(/%(TITLE|DESCRIPTION|ORIGIN|URL)%/g, (_, key) => escapeHtml(fields[key]));
@@ -96,7 +98,7 @@ if (require.main === module) {
   const log = createLogger();
   const server = createServer({ log });
   const port = Number(process.env.PORT) || 3000;
-  server.listen(port).then((p) => log.info(`Rupee Rush listening on port ${p}`));
+  server.listen(port).then((p) => log.info(`${GAME_NAME} listening on port ${p}`));
 
   let stopping = false;
   const shutdown = (signal) => {

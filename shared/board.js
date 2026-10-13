@@ -6,7 +6,7 @@
 'use strict';
 
 /**
- * Rupee Rush board definition.
+ * Board definition: eight countries, two to three cities each.
  *
  * The board is a fixed array of 40 tiles, indexed 0..39 clockwise from GO.
  * Every tile has a stable string `id` (used by cards and saved state) and an
@@ -29,16 +29,21 @@ const TILE = Object.freeze({
   GO_TO_JAIL: 'goToJail',
 });
 
-/** Colour sets, cheapest first. houseCost applies to every city in the set. */
+/**
+ * Colour sets, cheapest first. houseCost applies to every city in the set.
+ * Each set is one country. `color` is a data fallback; the client paints sets
+ * from the --set-<key> custom properties in css/tokens.css.
+ */
+const country = (name, flag) => Object.freeze({ name, flag });
 const COLOR_GROUPS = Object.freeze({
-  brown:     Object.freeze({ name: 'Brown',      color: '#8d5a3b', houseCost: 50 }),
-  lightBlue: Object.freeze({ name: 'Sky',        color: '#7cc6e8', houseCost: 50 }),
-  pink:      Object.freeze({ name: 'Rose',       color: '#d9529b', houseCost: 100 }),
-  orange:    Object.freeze({ name: 'Saffron',    color: '#f28c28', houseCost: 100 }),
-  red:       Object.freeze({ name: 'Chilli',     color: '#d93a3a', houseCost: 150 }),
-  yellow:    Object.freeze({ name: 'Haldi',      color: '#f2c94c', houseCost: 150 }),
-  green:     Object.freeze({ name: 'Peacock',    color: '#2e9e5b', houseCost: 200 }),
-  darkBlue:  Object.freeze({ name: 'Indigo',     color: '#2f4aa8', houseCost: 200 }),
+  brown:     Object.freeze({ name: 'Brown',      color: '#8d5a3b', houseCost: 50,  country: country('Brazil', '🇧🇷') }),
+  lightBlue: Object.freeze({ name: 'Light blue', color: '#7cc6e8', houseCost: 50,  country: country('Israel', '🇮🇱') }),
+  pink:      Object.freeze({ name: 'Pink',       color: '#d9529b', houseCost: 100, country: country('Italy', '🇮🇹') }),
+  orange:    Object.freeze({ name: 'Orange',     color: '#f28c28', houseCost: 100, country: country('Germany', '🇩🇪') }),
+  red:       Object.freeze({ name: 'Red',        color: '#d93a3a', houseCost: 150, country: country('China', '🇨🇳') }),
+  yellow:    Object.freeze({ name: 'Yellow',     color: '#f2c94c', houseCost: 150, country: country('France', '🇫🇷') }),
+  green:     Object.freeze({ name: 'Green',      color: '#2e9e5b', houseCost: 200, country: country('United Kingdom', '🇬🇧') }),
+  darkBlue:  Object.freeze({ name: 'Dark blue',  color: '#2f4aa8', houseCost: 200, country: country('United States', '🇺🇸') }),
 });
 
 /** Rent by number of airports owned by the same player (1..4). */
@@ -95,45 +100,45 @@ function special(type, id, name) {
 
 const RAW_TILES = [
   /*  0 */ special(TILE.GO, 'go', 'GO'),
-  /*  1 */ city('patna', 'Patna', 'brown', 60, [2, 10, 30, 90, 160, 250]),
+  /*  1 */ city('salvador', 'Salvador', 'brown', 60, [2, 10, 30, 90, 160, 250]),
   /*  2 */ special(TILE.TREASURE, 'treasure-1', 'Treasure'),
-  /*  3 */ city('bhopal', 'Bhopal', 'brown', 60, [4, 20, 60, 180, 320, 450]),
+  /*  3 */ city('rio', 'Rio', 'brown', 60, [4, 20, 60, 180, 320, 450]),
   /*  4 */ tax('income-tax', 'Income Tax', 200),
-  /*  5 */ airport('chennai-airport', 'Chennai Airport'),
-  /*  6 */ city('nagpur', 'Nagpur', 'lightBlue', 100, [6, 30, 90, 270, 400, 550]),
+  /*  5 */ airport('tlv-airport', 'TLV Airport'),
+  /*  6 */ city('tel-aviv', 'Tel Aviv', 'lightBlue', 100, [6, 30, 90, 270, 400, 550]),
   /*  7 */ special(TILE.SURPRISE, 'surprise-1', 'Surprise'),
-  /*  8 */ city('lucknow', 'Lucknow', 'lightBlue', 100, [6, 30, 90, 270, 400, 550]),
-  /*  9 */ city('jaipur', 'Jaipur', 'lightBlue', 120, [8, 40, 100, 300, 450, 600]),
+  /*  8 */ city('haifa', 'Haifa', 'lightBlue', 100, [6, 30, 90, 270, 400, 550]),
+  /*  9 */ city('jerusalem', 'Jerusalem', 'lightBlue', 120, [8, 40, 100, 300, 450, 600]),
   /* 10 */ special(TILE.JAIL, 'jail', 'Jail'),
-  /* 11 */ city('indore', 'Indore', 'pink', 140, [10, 50, 150, 450, 625, 750]),
-  /* 12 */ utility('electricity-board', 'Electricity Board'),
-  /* 13 */ city('kochi', 'Kochi', 'pink', 140, [10, 50, 150, 450, 625, 750]),
-  /* 14 */ city('chandigarh', 'Chandigarh', 'pink', 160, [12, 60, 180, 500, 700, 900]),
-  /* 15 */ airport('kolkata-airport', 'Kolkata Airport'),
-  /* 16 */ city('surat', 'Surat', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+  /* 11 */ city('venice', 'Venice', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+  /* 12 */ utility('electric-company', 'Electric Company'),
+  /* 13 */ city('milan', 'Milan', 'pink', 140, [10, 50, 150, 450, 625, 750]),
+  /* 14 */ city('rome', 'Rome', 'pink', 160, [12, 60, 180, 500, 700, 900]),
+  /* 15 */ airport('muc-airport', 'MUC Airport'),
+  /* 16 */ city('frankfurt', 'Frankfurt', 'orange', 180, [14, 70, 200, 550, 750, 950]),
   /* 17 */ special(TILE.TREASURE, 'treasure-2', 'Treasure'),
-  /* 18 */ city('visakhapatnam', 'Visakhapatnam', 'orange', 180, [14, 70, 200, 550, 750, 950]),
-  /* 19 */ city('ahmedabad', 'Ahmedabad', 'orange', 200, [16, 80, 220, 600, 800, 1000]),
+  /* 18 */ city('munich', 'Munich', 'orange', 180, [14, 70, 200, 550, 750, 950]),
+  /* 19 */ city('berlin', 'Berlin', 'orange', 200, [16, 80, 220, 600, 800, 1000]),
   /* 20 */ special(TILE.VACATION, 'vacation', 'Vacation'),
-  /* 21 */ city('kolkata', 'Kolkata', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+  /* 21 */ city('shenzhen', 'Shenzhen', 'red', 220, [18, 90, 250, 700, 875, 1050]),
   /* 22 */ special(TILE.SURPRISE, 'surprise-2', 'Surprise'),
-  /* 23 */ city('goa', 'Goa', 'red', 220, [18, 90, 250, 700, 875, 1050]),
-  /* 24 */ city('chennai', 'Chennai', 'red', 240, [20, 100, 300, 750, 925, 1100]),
-  /* 25 */ airport('bengaluru-airport', 'Bengaluru Airport'),
-  /* 26 */ city('pune', 'Pune', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
-  /* 27 */ city('noida', 'Noida', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
-  /* 28 */ utility('water-board', 'Water Board'),
-  /* 29 */ city('gurugram', 'Gurugram', 'yellow', 280, [24, 120, 360, 850, 1025, 1200]),
+  /* 23 */ city('beijing', 'Beijing', 'red', 220, [18, 90, 250, 700, 875, 1050]),
+  /* 24 */ city('shanghai', 'Shanghai', 'red', 240, [20, 100, 300, 750, 925, 1100]),
+  /* 25 */ airport('cdg-airport', 'CDG Airport'),
+  /* 26 */ city('lyon', 'Lyon', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+  /* 27 */ city('toulouse', 'Toulouse', 'yellow', 260, [22, 110, 330, 800, 975, 1150]),
+  /* 28 */ utility('water-company', 'Water Company'),
+  /* 29 */ city('paris', 'Paris', 'yellow', 280, [24, 120, 360, 850, 1025, 1200]),
   /* 30 */ special(TILE.GO_TO_JAIL, 'go-to-jail', 'Go to Jail'),
-  /* 31 */ city('thane', 'Thane', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
-  /* 32 */ city('hyderabad', 'Hyderabad', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+  /* 31 */ city('liverpool', 'Liverpool', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
+  /* 32 */ city('manchester', 'Manchester', 'green', 300, [26, 130, 390, 900, 1100, 1275]),
   /* 33 */ special(TILE.TREASURE, 'treasure-3', 'Treasure'),
-  /* 34 */ city('bengaluru', 'Bengaluru', 'green', 320, [28, 150, 450, 1000, 1200, 1400]),
-  /* 35 */ airport('delhi-airport', 'Delhi Airport'),
+  /* 34 */ city('london', 'London', 'green', 320, [28, 150, 450, 1000, 1200, 1400]),
+  /* 35 */ airport('jfk-airport', 'JFK Airport'),
   /* 36 */ special(TILE.SURPRISE, 'surprise-3', 'Surprise'),
-  /* 37 */ city('new-delhi', 'New Delhi', 'darkBlue', 350, [35, 175, 500, 1100, 1300, 1500]),
-  /* 38 */ tax('gst', 'GST', 100),
-  /* 39 */ city('mumbai', 'Mumbai', 'darkBlue', 400, [50, 200, 600, 1400, 1700, 2000]),
+  /* 37 */ city('california', 'California', 'darkBlue', 350, [35, 175, 500, 1100, 1300, 1500]),
+  /* 38 */ tax('luxury-tax', 'Luxury Tax', 100),
+  /* 39 */ city('new-york', 'New York', 'darkBlue', 400, [50, 200, 600, 1400, 1700, 2000]),
 ];
 
 /** Final, frozen board with index and mortgage value attached. */
@@ -177,6 +182,12 @@ function getTileById(id) {
 
 function isOwnable(tile) {
   return OWNABLE_TYPES.has(tile.type);
+}
+
+/** { name, flag } of the country a city belongs to, or null for other tiles. */
+function countryOf(tile) {
+  const group = tile && COLOR_GROUPS[tile.group];
+  return group ? group.country : null;
 }
 
 function groupMembers(group) {
@@ -248,6 +259,7 @@ return {
   getTileById,
   isOwnable,
   groupMembers,
+  countryOf,
   nearestAhead,
   gridPosition,
   boardSide,

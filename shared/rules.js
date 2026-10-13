@@ -13,6 +13,10 @@
  * Everything else here is fixed by the rules.
  */
 
+/** The game's name and one-line pitch. Every place that shows the name reads it from here. */
+const GAME_NAME = 'Monopoly';
+const GAME_TAGLINE = 'Buy, build, bid and trade your way around the world.';
+
 const DEFAULT_SETTINGS = Object.freeze({
   startingCash: 1500,
   goSalary: 200,
@@ -113,6 +117,8 @@ function sanitizeSettings(input = {}) {
 }
 
 return {
+  GAME_NAME,
+  GAME_TAGLINE,
   DEFAULT_SETTINGS,
   SETTING_LIMITS,
   JAIL,

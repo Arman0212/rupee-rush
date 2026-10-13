@@ -7,24 +7,24 @@ const { setup, player, prop, own, act, findEvent, eventTypes, totalMoney } = req
 
 const propose = (game, from, to, give = {}, get = {}) => game.dispatch(from, { type: 'proposeTrade', toId: to, give, get });
 
-/** p1 owns Patna, p2 owns Bhopal and Mumbai; nobody has rolled. */
+/** p1 owns Salvador, p2 owns Rio and New York; nobody has rolled. */
 function tradeGame(players = 3) {
   const game = setup({ players });
-  own(game, 'p1', 'patna');
-  own(game, 'p2', 'bhopal', 'mumbai');
+  own(game, 'p1', 'salvador');
+  own(game, 'p2', 'rio', 'new-york');
   return game;
 }
 
 describe('proposing', () => {
   test('a valid proposal is open and visible to everyone', () => {
     const game = tradeGame();
-    const { ok, events } = propose(game, 'p1', 'p2', { tileIds: ['patna'], cash: 100 }, { tileIds: ['bhopal'] });
+    const { ok, events } = propose(game, 'p1', 'p2', { tileIds: ['salvador'], cash: 100 }, { tileIds: ['rio'] });
     assert.ok(ok);
     const trade = game.state.trades[0];
     assert.deepEqual(trade, {
       id: 't1', fromId: 'p1', toId: 'p2',
-      give: { tileIds: ['patna'], cash: 100, jailCards: [] },
-      get: { tileIds: ['bhopal'], cash: 0, jailCards: [] },
+      give: { tileIds: ['salvador'], cash: 100, jailCards: [] },
+      get: { tileIds: ['rio'], cash: 0, jailCards: [] },
       status: 'open', createdAt: 1000,
     });
     assert.equal(findEvent(events, 'tradeProposed').tradeId, 't1');
@@ -38,18 +38,18 @@ describe('proposing', () => {
 
   test('refuses empty, impossible and invalid offers', () => {
     const game = tradeGame();
-    game.state.properties.patna.buildings = 0;
-    own(game, 'p1', 'bhopal'); // p1 now has the brown set
-    game.state.properties.bhopal.buildings = 1;
+    game.state.properties.salvador.buildings = 0;
+    own(game, 'p1', 'rio'); // p1 now has the brown set
+    game.state.properties.rio.buildings = 1;
     const cases = [
       [{}, {}, 'a trade must include something'],
-      [{ tileIds: ['mumbai'] }, {}, 'Mumbai has changed hands'],
-      [{ tileIds: ['patna'] }, {}, "sell the buildings in Patna's set first"],
+      [{ tileIds: ['new-york'] }, {}, 'New York has changed hands'],
+      [{ tileIds: ['salvador'] }, {}, "sell the buildings in Salvador's set first"],
       [{ cash: 1501 }, {}, "P1 doesn't have ₹1,501"],
       [{ jailCards: ['s-jailfree'] }, {}, 'P1 no longer holds that jail-free card'],
       [{ tileIds: ['nowhere'] }, {}, 'unknown property'],
       [{ cash: -5 }, {}, 'trade cash must be a whole, non-negative number of rupees'],
-      [{ tileIds: 'patna' }, {}, 'invalid tiles in trade'],
+      [{ tileIds: 'salvador' }, {}, 'invalid tiles in trade'],
       ['junk', {}, 'invalid trade offer'],
     ];
     for (const [give, get, error] of cases) assert.equal(propose(game, 'p1', 'p2', give, get).error, error, JSON.stringify(give));
@@ -64,7 +64,7 @@ describe('proposing', () => {
     assert.equal(propose(game, 'p1', 'p3', { cash: 1 }).error, 'P3 is out of the game');
     Object.assign(player(game, 'p1'), { cash: -20 });
     player(game, 'p1').debt = { amount: 20, creditorId: null, owed: [{ creditorId: null, amount: 20 }] };
-    assert.equal(propose(game, 'p1', 'p2', { tileIds: ['patna'] }).error, 'clear your debt before proposing a trade');
+    assert.equal(propose(game, 'p1', 'p2', { tileIds: ['salvador'] }).error, 'clear your debt before proposing a trade');
   });
 
   test('at most 3 open proposals per player', () => {
@@ -80,15 +80,15 @@ describe('accepting', () => {
     const game = tradeGame();
     player(game, 'p1').jailFreeCards.push({ deck: 'surprise', cardId: 's-jailfree' });
     game.state.decks.surprise = game.state.decks.surprise.filter((c) => c !== 's-jailfree');
-    propose(game, 'p1', 'p2', { tileIds: ['patna'], cash: 100, jailCards: ['s-jailfree'] }, { tileIds: ['bhopal', 'mumbai'], cash: 30 });
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'], cash: 100, jailCards: ['s-jailfree'] }, { tileIds: ['rio', 'new-york'], cash: 30 });
     const before = totalMoney(game);
     assert.equal(game.dispatch('p1', { type: 'acceptTrade', tradeId: 't1' }).error, 'only the player it was offered to can answer it');
     assert.equal(game.dispatch('p3', { type: 'acceptTrade', tradeId: 't1' }).error, 'only the player it was offered to can answer it');
     const events = act(game, 'p2', 'acceptTrade', { tradeId: 't1' });
     assert.equal(findEvent(events, 'tradeAccepted').tradeId, 't1');
-    assert.equal(prop(game, 'patna').ownerId, 'p2');
-    assert.equal(prop(game, 'bhopal').ownerId, 'p1');
-    assert.equal(prop(game, 'mumbai').ownerId, 'p1');
+    assert.equal(prop(game, 'salvador').ownerId, 'p2');
+    assert.equal(prop(game, 'rio').ownerId, 'p1');
+    assert.equal(prop(game, 'new-york').ownerId, 'p1');
     assert.equal(player(game, 'p1').cash, 1500 - 100 + 30);
     assert.equal(player(game, 'p2').cash, 1500 + 100 - 30);
     assert.deepEqual(player(game, 'p2').jailFreeCards, [{ deck: 'surprise', cardId: 's-jailfree' }]);
@@ -99,20 +99,20 @@ describe('accepting', () => {
 
   test('mortgaged tiles stay mortgaged and the receiver pays a 10% fee to the bank', () => {
     const game = tradeGame();
-    prop(game, 'mumbai').mortgaged = true; // mortgage value ₹200 -> fee ₹20
-    propose(game, 'p1', 'p2', { cash: 50 }, { tileIds: ['mumbai'] });
+    prop(game, 'new-york').mortgaged = true; // mortgage value ₹200 -> fee ₹20
+    propose(game, 'p1', 'p2', { cash: 50 }, { tileIds: ['new-york'] });
     const before = totalMoney(game);
     const events = act(game, 'p2', 'acceptTrade', { tradeId: 't1' });
-    assert.equal(prop(game, 'mumbai').mortgaged, true);
-    assert.deepEqual(findEvent(events, 'mortgageFee'), { type: 'mortgageFee', from: 'p1', to: null, amount: 20, tileId: 'mumbai', at: 1000 });
+    assert.equal(prop(game, 'new-york').mortgaged, true);
+    assert.deepEqual(findEvent(events, 'mortgageFee'), { type: 'mortgageFee', from: 'p1', to: null, amount: 20, tileId: 'new-york', at: 1000 });
     assert.equal(player(game, 'p1').cash, 1500 - 50 - 20);
     assert.equal(totalMoney(game), before - 20);
   });
 
   test('an accept is refused if the receiver cannot afford the fee, and nothing changes', () => {
     const game = tradeGame();
-    prop(game, 'patna').mortgaged = true; // fee ₹3
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { cash: 0 });
+    prop(game, 'salvador').mortgaged = true; // fee ₹3
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { cash: 0 });
     player(game, 'p2').cash = 2;
     const snapshot = JSON.stringify(game.state);
     assert.equal(game.dispatch('p2', { type: 'acceptTrade', tradeId: 't1' }).error, "you can't afford the ₹3 fee on mortgaged cities");
@@ -124,8 +124,8 @@ describe('accepting', () => {
 
   test('cash received in the trade counts towards the fee', () => {
     const game = tradeGame();
-    prop(game, 'patna').mortgaged = true;
-    propose(game, 'p1', 'p2', { tileIds: ['patna'], cash: 10 }, {});
+    prop(game, 'salvador').mortgaged = true;
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'], cash: 10 }, {});
     player(game, 'p2').cash = 0;
     assert.ok(game.dispatch('p2', { type: 'acceptTrade', tradeId: 't1' }).ok);
     assert.equal(player(game, 'p2').cash, 7);
@@ -133,13 +133,13 @@ describe('accepting', () => {
 
   test('acceptance re-checks everything and cancels a trade that went stale', () => {
     const game = tradeGame();
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { cash: 10 });
-    own(game, 'p3', 'patna'); // changed behind the engine's back
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { cash: 10 });
+    own(game, 'p3', 'salvador'); // changed behind the engine's back
     const { ok, events } = game.dispatch('p2', { type: 'acceptTrade', tradeId: 't1' });
     assert.ok(ok);
     assert.deepEqual(eventTypes(events), ['tradeCancelled']);
-    assert.equal(findEvent(events, 'tradeCancelled').reason, 'Patna has changed hands');
-    assert.equal(prop(game, 'patna').ownerId, 'p3');
+    assert.equal(findEvent(events, 'tradeCancelled').reason, 'Salvador has changed hands');
+    assert.equal(prop(game, 'salvador').ownerId, 'p3');
   });
 });
 
@@ -158,22 +158,22 @@ describe('declining, cancelling, countering', () => {
 
   test('a counter declines and proposes the mirror image by default', () => {
     const game = tradeGame();
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { tileIds: ['bhopal'], cash: 40 });
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { tileIds: ['rio'], cash: 40 });
     const events = act(game, 'p2', 'counterTrade', { tradeId: 't1' });
     assert.deepEqual(eventTypes(events), ['tradeDeclined', 'tradeProposed']);
     assert.equal(findEvent(events, 'tradeDeclined').countered, true);
     const counter = game.state.trades[0];
     assert.equal(counter.fromId, 'p2');
     assert.equal(counter.toId, 'p1');
-    assert.deepEqual(counter.give, { tileIds: ['bhopal'], cash: 40, jailCards: [] });
-    assert.deepEqual(counter.get, { tileIds: ['patna'], cash: 0, jailCards: [] });
+    assert.deepEqual(counter.give, { tileIds: ['rio'], cash: 40, jailCards: [] });
+    assert.deepEqual(counter.get, { tileIds: ['salvador'], cash: 0, jailCards: [] });
   });
 
   test('a counter can carry a different offer', () => {
     const game = tradeGame();
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { tileIds: ['mumbai'] });
-    act(game, 'p2', 'counterTrade', { tradeId: 't1', give: { tileIds: ['bhopal'] }, get: { tileIds: ['patna'], cash: 50 } });
-    assert.deepEqual(game.state.trades[0].get, { tileIds: ['patna'], cash: 50, jailCards: [] });
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { tileIds: ['new-york'] });
+    act(game, 'p2', 'counterTrade', { tradeId: 't1', give: { tileIds: ['rio'] }, get: { tileIds: ['salvador'], cash: 50 } });
+    assert.deepEqual(game.state.trades[0].get, { tileIds: ['salvador'], cash: 50, jailCards: [] });
     assert.equal(game.dispatch('p2', { type: 'counterTrade', tradeId: 't2' }).error, 'only the player it was offered to can answer it');
   });
 
@@ -190,29 +190,29 @@ describe('declining, cancelling, countering', () => {
 describe('automatic cancellation', () => {
   test('accepting one trade cancels another that needed the same tile', () => {
     const game = tradeGame();
-    propose(game, 'p1', 'p2', { cash: 100 }, { tileIds: ['bhopal'] });
-    propose(game, 'p3', 'p2', { cash: 120 }, { tileIds: ['bhopal'] });
+    propose(game, 'p1', 'p2', { cash: 100 }, { tileIds: ['rio'] });
+    propose(game, 'p3', 'p2', { cash: 120 }, { tileIds: ['rio'] });
     const events = act(game, 'p2', 'acceptTrade', { tradeId: 't2' });
     const cancelled = findEvent(events, 'tradeCancelled');
     assert.equal(cancelled.tradeId, 't1');
-    assert.equal(cancelled.reason, 'Bhopal has changed hands');
+    assert.equal(cancelled.reason, 'Rio has changed hands');
     assert.deepEqual(game.state.trades, []);
   });
 
   test('building in the set cancels trades that include its tiles', () => {
     const game = setup({ players: 2 });
-    own(game, 'p1', 'patna', 'bhopal');
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { cash: 80 });
-    const events = act(game, 'p1', 'build', { tileId: 'bhopal' });
+    own(game, 'p1', 'salvador', 'rio');
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { cash: 80 });
+    const events = act(game, 'p1', 'build', { tileId: 'rio' });
     assert.match(findEvent(events, 'tradeCancelled').reason, /sell the buildings/);
   });
 
   test('a trade whose cash is no longer there is cancelled', () => {
     const game = setup({ players: 2, dice: [[1, 2]] });
-    own(game, 'p2', 'patna');
-    game.state.properties.patna.ownerId = 'p2';
+    own(game, 'p2', 'salvador');
+    game.state.properties.salvador.ownerId = 'p2';
     player(game, 'p1').cash = 102;
-    propose(game, 'p1', 'p2', { cash: 100 }, { tileIds: ['patna'] });
+    propose(game, 'p1', 'p2', { cash: 100 }, { tileIds: ['salvador'] });
     // p1 lands on Income Tax (₹200) and can no longer pay the ₹100.
     game.state.players[0].position = 1;
     const events = act(game, 'p1', 'roll'); // 1 -> 4 Income Tax
@@ -230,7 +230,7 @@ describe('automatic cancellation', () => {
 
   test('saves and restores open trades', () => {
     const game = tradeGame();
-    propose(game, 'p1', 'p2', { tileIds: ['patna'] }, { cash: 30 });
+    propose(game, 'p1', 'p2', { tileIds: ['salvador'] }, { cash: 30 });
     const copy = Game.fromJSON(JSON.parse(JSON.stringify(game.toJSON())));
     assert.deepEqual(copy.state.trades, game.state.trades);
     assert.ok(copy.dispatch('p2', { type: 'acceptTrade', tradeId: 't1' }).ok);

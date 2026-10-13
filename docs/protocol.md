@@ -1,4 +1,4 @@
-# Rupee Rush socket protocol
+# Monopoly socket protocol
 
 Transport: Socket.io 4, default namespace. The server serves the client library at
 `/socket.io/socket.io.js`. Payloads above 16 KB are dropped by the transport.

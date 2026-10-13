@@ -28,21 +28,26 @@ const SHORT = { 'new-delhi': 'DEL', chandigarh: 'CHD', kochi: 'KOC' };
 const shortName = (tile) => SHORT[tile.id] || tile.name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
 
 const GLYPHS = { [TILE.AIRPORT]: '✈', [TILE.SURPRISE]: '?', [TILE.TREASURE]: '✦', [TILE.TAX]: '₹' };
-const utilityGlyph = (tile) => (tile.id === 'electricity-board' ? '⚡' : '💧');
+const utilityGlyph = (tile) => (tile.id === 'electric-company' ? '⚡' : '💧');
 
 function tileContent(tile) {
   const price = tile.price ? el('span', { className: 'tile-price', text: money(tile.price) }) : null;
-  // Long single words ("Visakhapatnam") get a slightly smaller face so they don't break mid-word.
+  // Long single words get a slightly smaller face so they don't break mid-word.
   const longWord = tile.name.split(' ').some((w) => w.length > 8);
   const name = el('span', { className: `tile-name${longWord ? ' is-long' : ''}`, text: tile.name });
   switch (tile.type) {
-    case TILE.CITY:
+    case TILE.CITY: {
+      const countryObj = COLOR_GROUPS[tile.group] && COLOR_GROUPS[tile.group].country;
+      const flagNode = countryObj && countryObj.flag ? el('span', { className: 'tile-flag', text: countryObj.flag, attrs: { 'aria-hidden': 'true' } }) : null;
+      const groupVar = tile.group === 'lightBlue' ? 'light-blue' : tile.group === 'darkBlue' ? 'dark-blue' : tile.group;
       return [
-        el('span', { className: 'tile-band', style: { '--band': COLOR_GROUPS[tile.group].color } }, el('span', { className: 'buildings' })),
+        el('span', { className: 'tile-band', style: { '--band': `var(--set-${groupVar}, ${COLOR_GROUPS[tile.group].color})` } }, el('span', { className: 'buildings' })),
+        flagNode,
         name,
         el('span', { className: 'tile-short', text: shortName(tile) }),
         price,
-      ];
+      ].filter(Boolean);
+    }
     case TILE.AIRPORT:
     case TILE.UTILITY:
       return [
@@ -65,23 +70,26 @@ function cornerContent(tile) {
     case TILE.GO:
       return [
         el('span', { className: 'corner-note', text: 'Collect salary as you pass' }),
+        el('span', { className: 'corner-glyph', text: '🏁', attrs: { 'aria-hidden': 'true' } }),
         el('span', { className: 'corner-big', text: 'GO' }),
         el('span', { className: 'go-arrow', text: '←', attrs: { 'aria-hidden': 'true' } }),
       ];
     case TILE.JAIL:
       return [
-        el('span', { className: 'jail-cell' }, el('span', { className: 'jail-label', text: 'In jail' })),
+        el('span', { className: 'jail-cell' },
+          el('span', { className: 'jail-icon', text: '🔒', attrs: { 'aria-hidden': 'true' } }),
+          el('span', { className: 'jail-label', text: 'In jail' })),
         el('span', { className: 'visiting', text: 'Just visiting' }),
       ];
     case TILE.VACATION:
       return [
-        el('span', { className: 'corner-glyph', text: '☀', attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'corner-glyph', text: '🌴', attrs: { 'aria-hidden': 'true' } }),
         el('span', { className: 'corner-big corner-mid', text: 'Vacation' }),
         el('span', { className: 'corner-note jackpot-note' }),
       ];
     case TILE.GO_TO_JAIL:
       return [
-        el('span', { className: 'corner-glyph', text: '⛓', attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'corner-glyph', text: '🚨', attrs: { 'aria-hidden': 'true' } }),
         el('span', { className: 'corner-big corner-mid', text: 'Go to jail' }),
       ];
     default:
@@ -101,7 +109,7 @@ export function buildGrid(boardNode, { onSelect }) {
     const side = boardSide(tile.index);
     const inner = el('span', { className: 'tile-inner' }, side === 'corner' ? cornerContent(tile) : tileContent(tile));
     const button = el('button', {
-      className: `tile tile-${tile.type} side-${side}`,
+      className: `tile tile-${tile.type} tile-${tile.id} side-${side}`,
       type: 'button',
       dataset: { tileId: tile.id, index: String(tile.index) },
       style: { 'grid-row': String(row), 'grid-column': String(col) },

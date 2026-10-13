@@ -1,7 +1,7 @@
 # Render blueprint: https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: rupee-rush
+    name: monopoly-online
     runtime: node
     plan: free
     # Production dependencies only: Playwright and socket.io-client are dev-only.

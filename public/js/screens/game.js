@@ -16,8 +16,8 @@ import { createAuctionPanel } from '../ui/auction.js';
 import { createTrades } from '../ui/trades.js';
 import { statsBlock } from '../ui/stats.js';
 import { createSidebar, netWorth } from '../ui/sidebar.js';
-import { confirmDialog, openDialog, showCard } from '../ui/modal.js';
-import { toast } from '../ui/toast.js';
+import { confirmDialog, openDialog } from '../ui/modal.js';
+import { toast, showCardBanner } from '../ui/toast.js';
 
 const { JAIL_INDEX, BOARD_SIZE } = board;
 
@@ -96,35 +96,6 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
   // ===========================================================================
   // Turn info, timer
   // ===========================================================================
-
-  store.subscribe(
-    (d) => d.state && d.state.publicState && {
-      current: d.state.publicState.currentPlayerId,
-      phase: d.state.publicState.phase,
-      pending: d.state.publicState.turn.pendingTileId,
-      auctionTile: d.state.publicState.auction && d.state.publicState.auction.tileId,
-      me: d.you && d.you.playerId,
-      players: d.state.publicState.players.map((p) => ({ id: p.id, name: p.name, color: p.color, inJail: p.inJail })),
-    },
-    (v) => {
-      const host = $('#turn-info');
-      if (!v || v.phase === 'gameOver') return render(host);
-      if (v.auctionTile) return render(host, el('span', { className: 'turn-who', text: `Auction: ${tileName(v.auctionTile)}` }));
-      const who = v.players.find((p) => p.id === v.current);
-      if (!who) return render(host);
-      const mine = who.id === v.me;
-      const doing = {
-        awaitingRoll: mine ? (who.inJail ? 'You are in jail: roll, pay or use a card' : 'Roll the dice') : (who.inJail ? 'is in jail' : 'is about to roll'),
-        buyDecision: mine ? `Buy ${tileName(v.pending)}?` : `is deciding on ${tileName(v.pending)}`,
-        awaitingEnd: mine ? 'Manage your cities or end your turn' : 'is finishing their turn',
-      }[v.phase] || '';
-      render(host,
-        el('span', { className: 'token-disc token-disc-sm', style: tokenStyle(who.color), attrs: { 'aria-hidden': 'true' } }),
-        el('span', { className: 'turn-who', text: mine ? 'Your turn' : who.name }),
-        el('span', { className: 'turn-doing', text: mine ? ` · ${doing}` : ` ${doing}` }));
-      return undefined;
-    },
-  );
 
   let timerFrame = null;
   store.subscribe(
@@ -317,6 +288,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
   async function drain() {
     if (effects.running) return;
     effects.running = true;
+    document.body.dataset.animating = 'true';
     try {
       while (effects.queue.length) {
         const { event, version } = effects.queue.shift();
@@ -327,6 +299,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
       console.error(err);
     } finally {
       effects.running = false;
+      delete document.body.dataset.animating;
       const ps = store.state && store.state.publicState;
       if (ps) tokens.sync(ps.players, ps.currentPlayerId);
     }
@@ -357,7 +330,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
           await tokens.walk(e.playerId, JAIL_INDEX, { backward: true, stepMs: 45 });
         }
         tokens.jump(e.playerId, JAIL_INDEX, { inJail: true });
-        if (e.playerId === me) toast('You were sent to jail!', { kind: 'bad' });
+        if (e.playerId === me) toast('You were sent to jail!', { kind: 'bad', important: true });
         break;
       }
       case 'leftJail':
@@ -365,25 +338,25 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
         break;
       case 'cardDrawn':
         effects.pendingBack = e.kind === 'moveBy';
-        showCard({ deck: e.deck, text: e.text, who: e.playerId === me ? 'You drew' : `${name(e.playerId)} drew`, mine: e.playerId === me });
+        showCardBanner({ deck: e.deck, text: e.text, who: e.playerId === me ? 'You drew' : `${name(e.playerId)} drew`, mine: e.playerId === me });
         if (!fast) await sleep(700);
         break;
       case 'rentPaid':
-        if (e.from === me) { toast(`You paid ${name(e.to)} ${money(e.amount)} rent for ${tileName(e.tileId)}.`, { kind: 'bad' }); sound.play('cash'); }
-        if (e.to === me) { toast(`${name(e.from)} paid you ${money(e.amount)} rent for ${tileName(e.tileId)}.`, { kind: 'good' }); sound.play('cash'); }
+        if (e.from === me) { toast(`You paid ${name(e.to)} ${money(e.amount)} rent for ${tileName(e.tileId)}.`, { kind: 'bad', important: true }); sound.play('cash'); }
+        if (e.to === me) { toast(`${name(e.from)} paid you ${money(e.amount)} rent for ${tileName(e.tileId)}.`, { kind: 'good', important: true }); sound.play('cash'); }
         break;
       case 'moneyCollected':
-        if (e.to === me && e.reason === 'goSalary') { toast(`You collected ${money(e.amount)} salary.`, { kind: 'good' }); sound.play('cash'); }
+        if (e.to === me && e.reason === 'goSalary') { toast(`You collected ${money(e.amount)} salary.`, { kind: 'good', important: false }); sound.play('cash'); }
         break;
       case 'taxPaid':
-        if (e.from === me) toast(`You paid ${money(e.amount)} ${tileName(e.tileId)}.`, { kind: 'bad' });
+        if (e.from === me) toast(`You paid ${money(e.amount)} ${tileName(e.tileId)}.`, { kind: 'bad', important: false });
         break;
       case 'jackpotCollected':
-        toast(e.to === me ? `You won the ${money(e.amount)} jackpot!` : `${name(e.to)} won the ${money(e.amount)} jackpot!`, { kind: 'good' });
+        toast(e.to === me ? `You won the ${money(e.amount)} jackpot!` : `${name(e.to)} won the ${money(e.amount)} jackpot!`, { kind: 'good', important: false });
         sound.play('cash');
         break;
       case 'turnStarted':
-        if (e.playerId === me) toast('Your turn!', { kind: 'good', timeout: 2000 });
+        if (e.playerId === me) toast('Your turn!', { kind: 'good', timeout: 2000, important: false });
         break;
       case 'bankrupt':
         bankruptOrder.push(e.playerId);
@@ -392,7 +365,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
         sound.play('bid');
         break;
       case 'auctionClosed':
-        if (e.winnerId === me) { toast(`You won ${tileName(e.tileId)} for ${money(e.amount)}!`, { kind: 'good' }); sound.play('cash'); }
+        if (e.winnerId === me) { toast(`You won ${tileName(e.tileId)} for ${money(e.amount)}!`, { kind: 'good', important: true }); sound.play('cash'); }
         break;
       default:
         break;

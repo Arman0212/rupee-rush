@@ -89,7 +89,7 @@ describe('save and restore', () => {
 
   test('fromJSON rejects data that is not a saved game', () => {
     for (const bad of [null, 42, 'x', {}, { version: 99, players: [] }, { version: 1 }]) {
-      assert.throws(() => Game.fromJSON(bad), /not a saved Rupee Rush game/);
+      assert.throws(() => Game.fromJSON(bad), /not a saved Monopoly game/);
     }
   });
 });

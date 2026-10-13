@@ -15,22 +15,22 @@ function landOn({ from, dice, settings, prepare }) {
 
 describe('city rent', () => {
   test('base rent goes from the visitor to the owner', () => {
-    const { game, rent } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p2', 'goa') });
-    assert.deepEqual(rent, { type: 'rentPaid', from: 'p1', to: 'p2', amount: 18, tileId: 'goa', at: 1000 });
+    const { game, rent } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p2', 'beijing') });
+    assert.deepEqual(rent, { type: 'rentPaid', from: 'p1', to: 'p2', amount: 18, tileId: 'beijing', at: 1000 });
     assert.equal(player(game, 'p1').cash, 1482);
     assert.equal(player(game, 'p2').cash, 1518);
     assert.equal(game.state.phase, 'awaitingEnd');
   });
 
   test('base rent doubles when the owner holds the whole set', () => {
-    const { rent } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p2', 'kolkata', 'goa', 'chennai') });
+    const { rent } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p2', 'shenzhen', 'beijing', 'shanghai') });
     assert.equal(rent.amount, 36);
   });
 
   test('a mortgaged tile elsewhere in the set still counts as owning the set', () => {
     const { rent } = landOn({
       from: 20, dice: [1, 2],
-      prepare: (g) => { own(g, 'p2', 'kolkata', 'goa', 'chennai'); prop(g, 'chennai').mortgaged = true; },
+      prepare: (g) => { own(g, 'p2', 'shenzhen', 'beijing', 'shanghai'); prop(g, 'shanghai').mortgaged = true; },
     });
     assert.equal(rent.amount, 36);
   });
@@ -38,7 +38,7 @@ describe('city rent', () => {
   test('no doubling when the setting is off', () => {
     const { rent } = landOn({
       from: 20, dice: [1, 2], settings: { doubleRentOnFullSet: false },
-      prepare: (g) => own(g, 'p2', 'kolkata', 'goa', 'chennai'),
+      prepare: (g) => own(g, 'p2', 'shenzhen', 'beijing', 'shanghai'),
     });
     assert.equal(rent.amount, 18);
   });
@@ -48,8 +48,8 @@ describe('city rent', () => {
       const { rent } = landOn({
         from: 20, dice: [1, 2],
         prepare: (g) => {
-          own(g, 'p2', 'kolkata', 'goa', 'chennai');
-          prop(g, 'goa').buildings = buildings;
+          own(g, 'p2', 'shenzhen', 'beijing', 'shanghai');
+          prop(g, 'beijing').buildings = buildings;
           player(g, 'p1').cash = 5000;
         },
       });
@@ -60,7 +60,7 @@ describe('city rent', () => {
   test('a mortgaged tile charges no rent', () => {
     const { game, events, rent } = landOn({
       from: 20, dice: [1, 2],
-      prepare: (g) => { own(g, 'p2', 'goa'); prop(g, 'goa').mortgaged = true; },
+      prepare: (g) => { own(g, 'p2', 'beijing'); prop(g, 'beijing').mortgaged = true; },
     });
     assert.equal(rent, undefined);
     assert.equal(findEvent(events, 'rentWaived').reason, 'mortgaged');
@@ -68,7 +68,7 @@ describe('city rent', () => {
   });
 
   test('landing on your own property costs nothing', () => {
-    const { game, events } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p1', 'goa') });
+    const { game, events } = landOn({ from: 20, dice: [1, 2], prepare: (g) => own(g, 'p1', 'beijing') });
     assert.equal(findEvent(events, 'rentPaid'), undefined);
     assert.equal(player(game, 'p1').cash, 1500);
     assert.equal(game.state.phase, 'awaitingEnd');
@@ -76,7 +76,7 @@ describe('city rent', () => {
 });
 
 describe('owner in jail', () => {
-  const jailOwner = (g) => { own(g, 'p2', 'goa'); Object.assign(player(g, 'p2'), { inJail: true, position: 10 }); };
+  const jailOwner = (g) => { own(g, 'p2', 'beijing'); Object.assign(player(g, 'p2'), { inJail: true, position: 10 }); };
 
   test('rent is still collected when collectRentInJail is on', () => {
     const { rent } = landOn({ from: 20, dice: [1, 2], prepare: jailOwner });
@@ -91,12 +91,12 @@ describe('owner in jail', () => {
 });
 
 describe('airports and utilities', () => {
-  const airports = ['bengaluru-airport', 'chennai-airport', 'kolkata-airport', 'delhi-airport'];
+  const airports = ['cdg-airport', 'tlv-airport', 'muc-airport', 'jfk-airport'];
 
   test('airport rent is 25/50/100/200 by the number owned', () => {
     [25, 50, 100, 200].forEach((expected, i) => {
       const { rent } = landOn({ from: 20, dice: [2, 3], prepare: (g) => own(g, 'p2', ...airports.slice(0, i + 1)) });
-      assert.equal(rent.tileId, 'bengaluru-airport');
+      assert.equal(rent.tileId, 'cdg-airport');
       assert.equal(rent.amount, expected);
     });
   });
@@ -104,18 +104,18 @@ describe('airports and utilities', () => {
   test('a mortgaged airport still counts towards the owner\'s total', () => {
     const { rent } = landOn({
       from: 20, dice: [2, 3],
-      prepare: (g) => { own(g, 'p2', ...airports.slice(0, 2)); prop(g, 'chennai-airport').mortgaged = true; },
+      prepare: (g) => { own(g, 'p2', ...airports.slice(0, 2)); prop(g, 'tlv-airport').mortgaged = true; },
     });
     assert.equal(rent.amount, 50);
   });
 
   test('one utility charges 4x the dice', () => {
-    const { rent } = landOn({ from: 20, dice: [3, 5], prepare: (g) => own(g, 'p2', 'water-board') });
+    const { rent } = landOn({ from: 20, dice: [3, 5], prepare: (g) => own(g, 'p2', 'water-company') });
     assert.equal(rent.amount, 32);
   });
 
   test('both utilities charge 10x the dice', () => {
-    const { rent } = landOn({ from: 20, dice: [3, 5], prepare: (g) => own(g, 'p2', 'water-board', 'electricity-board') });
+    const { rent } = landOn({ from: 20, dice: [3, 5], prepare: (g) => own(g, 'p2', 'water-company', 'electric-company') });
     assert.equal(rent.amount, 80);
   });
 });

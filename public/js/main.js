@@ -1,9 +1,9 @@
-// Boot: wire the socket, the store and the three screens together.
 import { $, $$, storage } from './dom.js';
+import { rules } from './shared.js';
 import { createNet, statusPill, tokens } from './net.js';
 import { createStore, selectMe } from './store.js';
 import { createSound } from './sound.js';
-import { initToasts, toast } from './ui/toast.js';
+import { initToasts, initNotifications, toast } from './ui/toast.js';
 import { confirmDialog } from './ui/modal.js';
 import { createChat } from './ui/chat.js';
 import { createLog } from './ui/log.js';
@@ -14,7 +14,30 @@ import { createGameScreen } from './screens/game.js';
 
 const store = createStore();
 initToasts($('#toasts'));
+initNotifications($('#notif-toggle'));
+initTheme($('#theme-toggle'));
 const sound = createSound($('#sound-toggle'));
+
+function initTheme(toggleBtn) {
+  let theme = storage.get('rr:theme') || 'dark';
+  function apply() {
+    document.documentElement.dataset.theme = theme;
+    if (toggleBtn) {
+      const isDark = theme === 'dark';
+      toggleBtn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+      toggleBtn.title = isDark ? 'Switch to light theme' : 'Switch to dark theme';
+      toggleBtn.firstElementChild.textContent = isDark ? '☀️' : '🌙';
+    }
+  }
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      theme = theme === 'dark' ? 'light' : 'dark';
+      storage.set('rr:theme', theme);
+      apply();
+    });
+  }
+  apply();
+}
 
 const net = createNet({ onStatus: statusPill($('#conn')), onRejoin: handleRejoin });
 const chat = createChat({ net, store });
@@ -127,8 +150,8 @@ net.on('kicked', ({ code }) => {
 });
 net.on('roomClosed', ({ code, reason }) => {
   tokens.remove(code);
-  const why = { expired: 'This room reached its time limit and closed.', idle: 'This room closed after being idle.' }[reason]
-    || 'The server restarted, so this room has closed.';
+  const why = { expired: `This ${rules.GAME_NAME} room reached its time limit and closed.`, idle: `This ${rules.GAME_NAME} room closed after being idle.` }[reason]
+    || `The server restarted, so this ${rules.GAME_NAME} room has closed.`;
   leaveToHome(why);
 });
 store.onEvents((events) => log.addEvents(events));
@@ -166,7 +189,7 @@ store.subscribe(
     chip.hidden = !v;
     chip.textContent = v ? `Room ${v.code}` : '';
     $('#leave-btn').hidden = !v;
-    document.title = v ? `Rupee Rush · ${v.code}` : 'Rupee Rush';
+    document.title = v ? `${rules.GAME_NAME} · ${v.code}` : rules.GAME_NAME;
   },
 );
 $('#leave-btn').addEventListener('click', () => app.leave());
