@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rupee Rush (debug client)</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; max-width: 1100px; }
+    section { border: 1px solid #ccc; padding: 8px 12px; margin: 8px 0; }
+    #error { color: #b00020; min-height: 1.4em; }
+    #notice { color: #7a4d00; }
+    .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #333; vertical-align: middle; margin-right: 4px; }
+    .colour { width: 28px; height: 22px; margin: 2px; border: 2px solid #fff; cursor: pointer; }
+    .colour.mine { border-color: #000; }
+    .colour:disabled { opacity: 0.25; cursor: not-allowed; }
+    #actions button { margin: 2px; }
+    #log { max-height: 260px; overflow: auto; font: 12px monospace; background: #f6f6f6; padding: 4px 4px 4px 28px; }
+    #chat { max-height: 180px; overflow: auto; }
+    #state { max-height: 420px; overflow: auto; font-size: 11px; background: #f6f6f6; padding: 6px; }
+    #settings label { display: inline-block; margin: 2px 12px 2px 0; }
+    #settings input[type=number] { width: 70px; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Rupee Rush <small>(debug client)</small></h1>
+  <div id="error"></div>
+  <div id="notice"></div>
+
+  <section id="home">
+    <label>Your name <input id="name" maxlength="16" autocomplete="nickname"></label>
+    <button id="create">Create room</button>
+    &nbsp;|&nbsp;
+    <label>Code <input id="code" maxlength="6" size="7" autocapitalize="characters"></label>
+    <button id="join">Join</button>
+    <h3>Public rooms <button id="refresh">Refresh</button></h3>
+    <ul id="rooms"></ul>
+  </section>
+
+  <section id="room" hidden>
+    <h2>Room <span id="roomCode"></span> <small id="roomStatus"></small></h2>
+    <p>Invite link: <a id="invite"></a> <button id="leave">Leave room</button></p>
+    <p id="deadline"></p>
+    <div class="cols">
+      <div>
+        <h3>Players</h3>
+        <ul id="players"></ul>
+
+        <div id="lobby">
+          <h3>Colour</h3>
+          <div id="colours"></div>
+          <h3>Settings <small id="settingsHint"></small></h3>
+          <form id="settings"></form>
+          <p><button id="start">Start game</button></p>
+        </div>
+
+        <div id="game">
+          <h3>Your actions <small id="youInfo"></small></h3>
+          <div id="actions"></div>
+          <p><button id="playAgain" hidden>Play again (host)</button></p>
+        </div>
+
+        <h3>Chat</h3>
+        <ul id="chat"></ul>
+        <form id="chatForm"><input id="chatText" maxlength="200" size="40"> <button>Send</button></form>
+      </div>
+      <div>
+        <h3>Event log</h3>
+        <ol id="log"></ol>
+        <h3>publicState <small id="version"></small></h3>
+        <pre id="state"></pre>
+      </div>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/debug.js"></script>
+</body>
+</html>
