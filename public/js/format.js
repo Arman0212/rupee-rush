@@ -114,7 +114,7 @@ export function shortActionLabel(action, { publicState }) {
 // ---------------------------------------------------------------------------
 
 const JAIL_EXIT = { fine: 'paid the fine', card: 'used a jail-free card', doubles: 'rolled doubles', forced: 'paid the fine after three tries' };
-const SEAT_LEFT = { left: 'left the room', kicked: 'was removed by the host', timeout: 'timed out' };
+const SEAT_LEFT = { left: 'left the room', kicked: 'was removed by the host', removed: 'was removed by the host', timeout: 'timed out' };
 
 /** One line for the event log, or null for events that aren't worth showing. */
 export function describeEvent(e, name) {
@@ -160,7 +160,8 @@ export function describeEvent(e, name) {
     case 'bankrupt': return `${name(e.playerId)} went bankrupt${e.creditorId ? ` to ${name(e.creditorId)}` : ''}.`;
     case 'gameOver': return e.winnerId ? `${name(e.winnerId)} wins the game!` : 'Game over.';
     case 'playerLeft': return `${name(e.playerId)} left the game.`;
-    case 'seatJoined': return `${e.name} joined the room.`;
+    case 'seatJoined': return e.bot ? `${e.name} (${e.bot} bot) joined the room.` : `${e.name} joined the room.`;
+    case 'seatReplacedByBot': return `A ${e.difficulty} bot took over for ${name(e.playerId)}.`;
     case 'seatLeft': return `${name(e.playerId)} ${SEAT_LEFT[e.reason] || 'left'}.`;
     case 'seatDisconnected': return `${name(e.playerId)} lost connection.`;
     case 'seatReconnected': return `${name(e.playerId)} is back.`;

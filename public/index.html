@@ -20,7 +20,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="preload" href="/fonts/baloo2.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/outfit.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/css/fonts.css">
   <link rel="stylesheet" href="/css/tokens.css">
@@ -44,23 +44,18 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
 
+  <!-- Top bar: home and narrower screens. On wide room screens its controls move into the left pane. -->
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Monopoly home">
-      <span class="brand-coin" aria-hidden="true">₹</span>
-      <span class="brand-name">Monopoly</span>
+    <a class="brand" href="/" aria-label="Home">
+      <span class="brand-mark" aria-hidden="true">₹</span>
+      <span class="brand-name" data-game-name>Monopoly</span>
     </a>
-    <div class="topbar-right">
+    <div class="app-controls" id="app-controls">
       <span id="topbar-room" class="room-chip" hidden></span>
-      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme">
-        <span aria-hidden="true">☀️</span>
-      </button>
-      <button id="notif-toggle" class="icon-btn" type="button" aria-label="Notifications: All" title="Notifications: All">
-        <span aria-hidden="true">🔔</span>
-      </button>
-      <button id="sound-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Sound off">
-        <span aria-hidden="true">🔇</span>
-      </button>
-      <button id="help-btn" class="icon-btn" type="button" aria-label="How to play" title="How to play"><span aria-hidden="true">?</span></button>
+      <button id="sound-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Sound off"></button>
+      <button id="help-btn" class="icon-btn" type="button" aria-label="How to play" title="How to play"></button>
+      <button id="notif-toggle" class="icon-btn" type="button" aria-label="Notifications: All" title="Notifications: All"></button>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Switch to light theme" title="Switch to light theme"></button>
       <span id="conn" class="pill pill-connecting" role="status">Connecting…</span>
       <button id="leave-btn" class="btn btn-ghost btn-sm" type="button" hidden>Leave</button>
     </div>
@@ -71,8 +66,8 @@
     <section id="screen-home" class="screen screen-home" aria-labelledby="home-title" hidden>
       <div class="hero">
         <div class="logo" aria-hidden="true"><span>₹</span></div>
-        <h1 id="home-title" class="title">Monopoly</h1>
-        <p class="tagline">Buy, build, bid and trade your way around the world.</p>
+        <h1 id="home-title" class="title" data-game-name>Monopoly</h1>
+        <p class="tagline" data-game-tagline>Buy, build, bid and trade your way around the world.</p>
       </div>
       <div class="home-grid">
         <div class="card home-card">
@@ -95,89 +90,111 @@
       </div>
     </section>
 
-    <!-- LOBBY -->
-    <section id="screen-lobby" class="screen screen-lobby" aria-labelledby="lobby-title" hidden>
-      <div class="card lobby-head">
-        <h1 id="lobby-title" class="eyebrow">Room code</h1>
-        <p id="lobby-code" class="room-code"></p>
-        <div class="lobby-share">
-          <button id="lobby-copy" class="btn btn-secondary" type="button">Copy invite link</button>
-          <span id="lobby-link" class="muted break"></span>
+    <!-- ROOM: lobby and game share one three-panel layout (data-mode="lobby" | "game"). -->
+    <section id="screen-room" class="screen screen-room" data-mode="lobby" data-tab="players" data-subtab="properties" aria-label="Game room" hidden>
+      <!-- Left: brand + controls (wide screens), share link, chat, game log -->
+      <aside class="pane pane-left" id="pane-left" aria-label="Share and chat">
+        <div class="pane-brand">
+          <a class="brand" href="/" aria-label="Leave to home">
+            <span class="brand-mark" aria-hidden="true">₹</span>
+            <span class="brand-name" data-game-name>Monopoly</span>
+          </a>
+          <div class="pane-controls" id="pane-controls"></div>
         </div>
-      </div>
-      <div class="lobby-grid">
-        <div class="card">
-          <h2 class="card-title">Players <span id="lobby-count" class="muted"></span></h2>
-          <ul id="lobby-players" class="player-list"></ul>
-          <h3 class="card-subtitle" id="colour-label">Your colour</h3>
-          <div id="lobby-colours" class="colour-grid" role="radiogroup" aria-labelledby="colour-label"></div>
-          <div class="lobby-start">
-            <button id="lobby-start" class="btn btn-primary btn-lg btn-block" type="button">Start game</button>
-            <p id="lobby-start-hint" class="hint"></p>
+        <section class="card share-card" aria-labelledby="share-title">
+          <h2 id="share-title" class="card-title">Share this game</h2>
+          <div class="share-row">
+            <input id="share-url" class="input" readonly aria-label="Invite link">
+            <button id="share-copy" class="btn btn-primary btn-sm" type="button">Copy</button>
           </div>
-        </div>
-        <div class="card">
-          <h2 class="card-title">Settings <span id="lobby-settings-note" class="muted"></span></h2>
-          <form id="lobby-settings" class="settings"></form>
-        </div>
-        <div class="card chat-card">
-          <h2 class="card-title">Chat</h2>
-          <div id="lobby-chat" class="chat-host"></div>
-        </div>
-      </div>
-    </section>
+        </section>
+        <section class="card chat-card" aria-labelledby="chat-title">
+          <h2 id="chat-title" class="card-title">Chat</h2>
+          <div id="room-chat" class="chat-host"></div>
+        </section>
+        <details class="card log-strip" id="log-strip">
+          <summary><span class="log-strip-title">Game log</span><span class="log-latest" id="log-latest"></span></summary>
+          <div id="room-log" class="log"></div>
+        </details>
+      </aside>
 
-    <!-- GAME -->
-    <section id="screen-game" class="screen screen-game" aria-label="Game" hidden>
-      <div class="game-layout">
-        <div class="board-area">
-          <div id="game-banners" class="banners"></div>
-          <div class="board-fit">
-            <div id="board" class="board" role="group" aria-label="Game board">
-              <div class="board-center">
-                <div class="center-glow" aria-hidden="true"></div>
-                <div class="center-inner">
-                  <p class="center-brand" aria-hidden="true">Monopoly</p>
-                  <div id="dice" class="dice" aria-label="Dice"></div>
-                  <div id="timer" class="timer" hidden>
-                    <div class="timer-track"><div class="timer-bar"></div></div>
-                    <span class="timer-text"></span>
-                  </div>
-                  <div id="jackpot" class="jackpot" hidden></div>
-                  <div id="center-auction" class="auction-host desktop-only"></div>
-                  <div id="center-actions" class="actions desktop-only"></div>
-                  <div id="center-log" class="log desktop-only"></div>
+      <!-- Centre: the board -->
+      <div class="room-centre">
+        <div id="game-banners" class="banners"></div>
+        <div class="board-fit">
+          <div id="board" class="board" role="group" aria-label="Game board">
+            <div class="board-center">
+              <div class="center-glow" aria-hidden="true"></div>
+              <div class="center-inner">
+                <p class="center-brand" aria-hidden="true" data-game-name>Monopoly</p>
+                <div class="lobby-center lobby-only">
+                  <p class="eyebrow">Room code</p>
+                  <p id="lobby-code" class="room-code"></p>
+                  <p id="lobby-count" class="center-status"></p>
+                  <button id="lobby-start" class="btn btn-primary btn-lg" type="button">Start game</button>
+                  <p id="lobby-start-hint" class="center-status"></p>
                 </div>
+                <div id="dice" class="dice game-only" aria-label="Dice"></div>
+                <div id="center-auction" class="auction-host game-only"></div>
+                <div id="center-actions" class="actions game-only"></div>
+                <p id="turn-info" class="center-status game-only" aria-live="polite"></p>
+                <div id="timer" class="timer game-only" hidden>
+                  <div class="timer-track"><div class="timer-bar"></div></div>
+                  <span class="timer-text"></span>
+                </div>
+                <div id="jackpot" class="jackpot game-only" hidden></div>
               </div>
-              <div id="token-layer" class="token-layer" aria-hidden="true"></div>
             </div>
+            <div id="token-layer" class="token-layer" aria-hidden="true"></div>
           </div>
         </div>
-
-        <aside class="sidebar" aria-label="Game panels">
-          <div class="tabs" role="tablist" aria-label="Panels">
-            <button class="tab mobile-only" role="tab" type="button" data-tab="actions" id="tab-actions" aria-controls="panel-actions">Actions</button>
-            <button class="tab" role="tab" type="button" data-tab="players" id="tab-players" aria-controls="panel-players">Players</button>
-            <button class="tab" role="tab" type="button" data-tab="cities" id="tab-cities" aria-controls="panel-cities">Cities</button>
-            <button class="tab" role="tab" type="button" data-tab="trades" id="tab-trades" aria-controls="panel-trades">Trades <span class="tab-badge" id="trade-badge" hidden></span></button>
-            <button class="tab" role="tab" type="button" data-tab="chat" id="tab-chat" aria-controls="panel-chat">Chat <span class="tab-badge" id="chat-badge" hidden></span></button>
-          </div>
-          <div class="tab-panels">
-            <div class="panel mobile-only" id="panel-actions" role="tabpanel" aria-labelledby="tab-actions">
-              <div id="mobile-auction" class="auction-host"></div>
-              <div id="mobile-actions" class="actions"></div>
-              <h3 class="panel-title">Game log</h3>
-              <div id="mobile-log" class="log"></div>
-            </div>
-            <div class="panel" id="panel-players" role="tabpanel" aria-labelledby="tab-players"></div>
-            <div class="panel" id="panel-cities" role="tabpanel" aria-labelledby="tab-cities"></div>
-            <div class="panel" id="panel-trades" role="tabpanel" aria-labelledby="tab-trades"></div>
-            <div class="panel" id="panel-chat" role="tabpanel" aria-labelledby="tab-chat">
-              <div id="game-chat" class="chat-host"></div>
-            </div>
-          </div>
-        </aside>
       </div>
+
+      <!-- Tabs: shown below 1200px (bottom bar below 900px) -->
+      <div class="tabs" role="tablist" aria-label="Panels">
+        <button class="tab" role="tab" type="button" data-tab="chat" id="tab-chat" aria-controls="pane-left">Chat <span class="tab-badge chat-badge" hidden></span></button>
+        <button class="tab" role="tab" type="button" data-tab="players" id="tab-players" aria-controls="sec-players">Players</button>
+        <button class="tab game-only" role="tab" type="button" data-tab="properties" id="tab-properties" aria-controls="sec-properties">Properties</button>
+        <button class="tab game-only" role="tab" type="button" data-tab="trades" id="tab-trades" aria-controls="sec-trades">Trades <span class="tab-badge trade-badge" hidden></span></button>
+        <button class="tab" role="tab" type="button" data-tab="settings" id="tab-settings" aria-controls="sec-settings">Settings</button>
+      </div>
+
+      <!-- Right: players, then settings (lobby) or properties and trades (game) -->
+      <aside class="pane pane-right" id="pane-right" aria-label="Players and game">
+        <section class="card pane-sec" id="sec-players" data-sec="players" aria-labelledby="players-title">
+          <h2 id="players-title" class="card-title">Players <span id="players-count" class="muted"></span></h2>
+          <ul id="player-list" class="player-list"></ul>
+          <div class="add-bot lobby-only" id="add-bot" hidden>
+            <label class="visually-hidden" for="add-bot-difficulty">Bot difficulty</label>
+            <select id="add-bot-difficulty" class="select">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+            <button id="add-bot-btn" class="btn btn-secondary btn-sm" type="button">Add bot</button>
+          </div>
+        </section>
+        <div class="subtabs game-only" role="tablist" aria-label="My game">
+          <button class="subtab" role="tab" type="button" data-subtab="properties" id="subtab-properties">My properties</button>
+          <button class="subtab" role="tab" type="button" data-subtab="trades" id="subtab-trades">Trades <span class="tab-badge trade-badge" hidden></span></button>
+        </div>
+        <section class="card pane-sec game-only" id="sec-properties" data-sec="properties" aria-label="My properties">
+          <div id="panel-cities"></div>
+        </section>
+        <section class="card pane-sec game-only" id="sec-trades" data-sec="trades" aria-label="Trades">
+          <div id="panel-trades"></div>
+        </section>
+        <div class="pane-sec settings-stack" id="sec-settings" data-sec="settings">
+          <section class="card settings-card" aria-labelledby="settings-game-title">
+            <h2 id="settings-game-title" class="card-title">Game settings <span class="muted settings-note"></span></h2>
+            <div id="settings-game" class="settings"></div>
+          </section>
+          <section class="card settings-card" aria-labelledby="settings-rules-title">
+            <h2 id="settings-rules-title" class="card-title">Gameplay rules</h2>
+            <div id="settings-rules" class="settings"></div>
+          </section>
+        </div>
+      </aside>
     </section>
   </main>
 

@@ -11,7 +11,9 @@ npm start          # http://localhost:3000 (PORT from the environment)
 npm run dev        # restarts on file changes
 ```
 
-Open the page, create a room, and share the invite link `/r/CODE`. The client is
+Open the page, create a room, and share the invite link `/r/CODE`. No one to play
+with? The host can fill seats with computer players (Easy, Medium or Hard) from the
+lobby, or hand a disconnected player's seat to a bot mid-game. The client is
 plain HTML, CSS and ES modules in `public/`, with no build step. The bare protocol
 test client from Phase 3 still lives at `/debug.html`.
 
@@ -20,12 +22,21 @@ test client from Phase 3 still lives at `/debug.html`.
 ```sh
 npm run validate   # board, cards and rules data
 npm test           # engine and room unit tests (node:test)
-npm run simulate   # random-bot games with invariant checks; -- --games 200 for a quick run
-npm run smoke      # real server + 4 socket.io clients, end to end
+npm run simulate   # random and strategy bots with invariant checks; -- --games 200 for a quick run
+npm run smoke      # real server + socket.io clients end to end, incl. 1 human vs 3 bots
 npm run ui-check   # headless Chromium (playwright): 3 pages play ~30 turns through
                    # the real UI; screenshots in screenshots/, fails on console errors
                    # (first run: npx playwright install chromium)
 npm run images     # re-render public/og-image.png and the PNG icons
+```
+
+Bots:
+
+```sh
+npm run tournament            # 1000 games, random/easy/medium/hard in shuffled seats: win rates with 95% CIs
+npm run tournament -- --lineup medium,hard --games 2000
+npm run tune -- --quick       # re-tune the hard bot (a few minutes); writes server/bots/params/hard.json
+npm run tune                  # the full run (about half an hour on 8 cores)
 ```
 
 ## Layout
@@ -35,7 +46,8 @@ npm run images     # re-render public/og-image.png and the PNG icons
 | `shared/` | board, cards and rules data: UMD, `require`d by Node and served at `/shared` as `window.RR` |
 | `public/` | the client: `js/net.js` (socket), `js/store.js` (state), `js/screens/`, `js/board/`, `js/ui/`, `css/` |
 | `server/game/` | the pure game engine (no I/O), authoritative for every rule; `trades.js` validates offers |
-| `server/rooms/` | rooms, lobby, seats and tokens, reconnection, turn timers |
+| `server/rooms/` | rooms, lobby, seats and tokens, reconnection, turn timers, bot scheduling |
+| `server/bots/` | computer players: `Bot.js` (decisions), `valuation.js`, `params/` (every tunable number), `arena.js` (headless games) |
 | `server/net/` | Socket.io handlers, payload validation, rate limits |
 | `docs/protocol.md` | every socket event and payload |
 
@@ -52,6 +64,8 @@ The server is a single Node process holding all rooms in memory. Any host that r
 | `PORT` | `3000` | Port to listen on. Render and Railway set it for you. |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info` or `debug`. |
 | `NODE_ENV` | | Set to `production` to cache the rendered `index.html`. |
+| `DEV_KEY` | | Optional dev setting. |
+| `DEV_PATH` | | Optional dev setting. |
 
 ### Render
 

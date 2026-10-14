@@ -115,7 +115,9 @@ export function createTilePopup({ store, act, onProposeTrade }) {
     const titleText = country ? `${tile.name}, ${country.name}` : tile.name;
     const groupText = country ? `${country.flag} ${COLOR_GROUPS[tile.group].name}` : (tile.group ? groupName(tile.group) : '');
     const groupVar = tile.group === 'lightBlue' ? 'light-blue' : tile.group === 'darkBlue' ? 'dark-blue' : tile.group;
-    const band = tile.group ? `var(--set-${groupVar}, ${COLOR_GROUPS[tile.group].color})` : 'var(--primary)';
+    // Airports and utilities have a group but no COLOR_GROUPS entry; they have --set-airport / --set-utility tokens.
+    const fallback = COLOR_GROUPS[tile.group] ? COLOR_GROUPS[tile.group].color : 'var(--primary)';
+    const band = tile.group ? `var(--set-${groupVar}, ${fallback})` : 'var(--primary)';
     const content = el('div', { className: 'popup-body' });
     const header = el('header', { className: 'popup-head', style: { '--band': band } },
       el('p', { className: 'popup-group', text: groupText }),

@@ -10,6 +10,8 @@
     "validate": "node scripts/validate-board.js",
     "test": "node --test",
     "simulate": "node scripts/simulate.js",
+    "tournament": "node scripts/tournament.js",
+    "tune": "node scripts/tune.js",
     "smoke": "node scripts/smoke.js",
     "ui-check": "node scripts/ui-check.js",
     "images": "node scripts/make-images.js"

@@ -1,81 +1,93 @@
-/* Design tokens: colours, type, spacing, radii. Dark default theme with a bright, clean light variant. */
+/* Design tokens: colours, type, spacing, radii.
+   Dark is the default: a deep navy-purple page, slightly lighter panels and
+   one bright mint accent for primary buttons and toggles. The light theme
+   keeps exactly the same structure. Text colours are chosen for at least
+   4.5:1 contrast on the surfaces they sit on. */
 
 :root,
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Country & Set Palette (vivid, saturated, modern) */
-  --set-brown: #c25e1a;        /* Brazil */
-  --set-light-blue: #0284c7;   /* Israel */
-  --set-pink: #db2777;         /* Italy */
-  --set-orange: #ea580c;       /* Germany */
-  --set-red: #dc2626;          /* China */
-  --set-yellow: #ca8a04;       /* France */
-  --set-green: #16a34a;        /* United Kingdom */
-  --set-dark-blue: #2563eb;    /* United States */
-  --set-airport: #475569;
-  --set-utility: #7c3aed;
+  /* Colour sets (country bands and flag rings) */
+  --set-brown: #c96a2b;
+  --set-light-blue: #38a8e0;
+  --set-pink: #e0559a;
+  --set-orange: #f08a3c;
+  --set-red: #e5484d;
+  --set-yellow: #e6b829;
+  --set-green: #2fb36b;
+  --set-dark-blue: #4f6ff0;
+  --set-airport: #8a90a8;
+  --set-utility: #9a7cf0;
 
-  /* Corner tile vibrant gradients */
-  --corner-go-bg: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%);
-  --corner-jail-bg: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-  --corner-vacation-bg: linear-gradient(135deg, #0e7490 0%, #0284c7 100%);
-  --corner-go-to-jail-bg: linear-gradient(135deg, #991b1b 0%, #b91c1c 50%, #dc2626 100%);
+  /* Corner tiles */
+  --corner-go-bg: linear-gradient(150deg, #1d6b5a 0%, #22886f 100%);
+  --corner-jail-bg: linear-gradient(150deg, #2b2c45 0%, #3a3b5c 100%);
+  --corner-vacation-bg: linear-gradient(150deg, #1f5f86 0%, #2a7cab 100%);
+  --corner-go-to-jail-bg: linear-gradient(150deg, #8a2a3a 0%, #b13a4d 100%);
 
-  /* Surfaces & Ink (Dark Indigo-to-Purple theme) */
-  --bg: linear-gradient(140deg, #0c081e 0%, #150d32 45%, #1f1147 100%);
-  --bg-color: #0c081e;
-  --bg-pattern: #170e36;
-  --topbar-bg: #110b27;
-  --surface: #181133;
-  --surface-2: #211745;
-  --surface-current: rgba(168, 85, 247, 0.22);
-  --paper: #1e153f;
-  --paper-edge: rgba(255, 255, 255, 0.12);
-  --paper-hover: #291d54;
-  --ink: #f8fafc;
-  --ink-soft: #cbd5e1;
-  --ink-faint: #94a3b8;
-  --line: rgba(255, 255, 255, 0.12);
-  --toast-bg: #1e153f;
-  --toast-ink: #f8fafc;
-  --toast-border: rgba(168, 85, 247, 0.4);
+  /* Page, panels, ink */
+  --bg-color: #0f0d26;
+  --bg: radial-gradient(1200px 700px at 50% -10%, #241d55 0%, transparent 60%), #0f0d26;
+  --bg-pattern: #17143a;
+  --topbar-bg: #17153a;
+  --surface: #1a1840;          /* panels */
+  --surface-2: #232052;        /* rows, chips, inputs */
+  --surface-current: rgba(62, 224, 181, 0.14);
+  --paper: #211e4c;
+  --paper-edge: rgba(255, 255, 255, 0.08);
+  --paper-hover: #2a2760;
+  --ink: #f4f3ff;
+  --ink-soft: #cbc8ec;         /* 9.6:1 on --surface */
+  --ink-faint: #a29ed0;        /* 6.1:1 on --surface */
+  --line: rgba(255, 255, 255, 0.10);
+  --toast-bg: #232052;
+  --toast-ink: #f4f3ff;
+  --toast-border: rgba(62, 224, 181, 0.35);
 
-  /* Board & Centre */
-  --board-felt: #140d2b;
-  --board-border: rgba(168, 85, 247, 0.35);
-  --board-glow: 0 0 35px rgba(139, 92, 246, 0.25);
-  --center: #1a1138;
-  --center-glow: radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.25) 0%, rgba(139, 92, 246, 0.08) 45%, transparent 75%);
+  /* Board */
+  --board-felt: #13112f;
+  --board-border: rgba(255, 255, 255, 0.08);
+  --board-glow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --center: #171540;
+  --center-glow: radial-gradient(circle at 50% 45%, rgba(62, 224, 181, 0.12) 0%, rgba(120, 100, 255, 0.08) 40%, transparent 72%);
+  --tile-bg: #252256;
+  --tile-bg-2: #1f1c4a;
+  --tile-edge: rgba(255, 255, 255, 0.07);
+  --tile-ink: #f1efff;
+  --pill-bg: rgba(255, 255, 255, 0.12);
+  --pill-ink: #f4f3ff;
+  --flag-bg: #ffffff;
 
-  /* Dice (white, rounded, shadowed) */
-  --dice-bg: #ffffff;
-  --dice-ink: #0f172a;
-  --dice-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+  /* Dice */
+  --dice-face: linear-gradient(145deg, #ffffff 0%, #efedf8 55%, #d9d5ec 100%);
+  --dice-pip: radial-gradient(circle at 35% 30%, #4a4766 0%, #14122a 70%);
+  --dice-shadow: inset -3px -4px 8px rgba(30, 20, 80, 0.16), inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+    0 12px 22px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
 
-  /* Semantic */
-  --primary: #9333ea;
-  --primary-hover: #a855f7;
-  --primary-ink: #ffffff;
-  --accent: #f59e0b;
-  --good: #10b981;
-  --bad: #ef4444;
-  --warn-bg: #451a03;
-  --warn-ink: #fde68a;
-  --danger-bg: #450a0a;
-  --focus: #c084fc;
+  /* Accent and status */
+  --primary: #3ee0b5;          /* the one bright accent */
+  --primary-hover: #6aebc9;
+  --primary-ink: #082019;      /* 11:1 on --primary */
+  --accent: #ffc35c;           /* small highlights: eyebrows, host crown */
+  --good: #4fe39a;             /* text on dark surfaces */
+  --bad: #ff8c8c;
+  --good-bg: #0e7356;          /* white text 5.6:1 */
+  --bad-bg: #b8293d;           /* white text 5.9:1 */
+  --warn-bg: #3d2a06;
+  --warn-ink: #ffd88a;
+  --danger-bg: #3d1020;
+  --focus: #ffd166;
 
-  /* Card deck accents */
-  --surprise-accent: #f97316;
-  --treasure-accent: #06b6d4;
+  --surprise-accent: #ff9d4d;
+  --treasure-accent: #4cd4ec;
 
-  /* Shadows */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 16px 42px rgba(0, 0, 0, 0.6);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.55);
 
-  /* Layout, Radii & Fonts */
-  --font-display: 'Baloo 2', 'Trebuchet MS', system-ui, sans-serif;
+  /* Type */
+  --font-display: 'Outfit', 'Trebuchet MS', system-ui, sans-serif;
   --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
@@ -84,92 +96,98 @@
   --text-xl: 1.75rem;
   --text-2xl: 2.5rem;
 
+  /* Spacing: an 8px scale (space-1 is the half step) */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --radius-sm: 6px;
+  --radius-sm: 8px;
   --radius: 12px;
-  --radius-lg: 18px;
+  --radius-lg: 16px;
 
+  /* Layout */
   --topbar-h: 56px;
   --tabbar-h: 60px;
-  --sidebar-w: 360px;
+  --pane-left-w: 272px;
+  --pane-right-w: 344px;
+  --sidebar-w: var(--pane-right-w);
   --step-ms: 140ms;
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  /* Country & Set Palette (vivid, high-contrast on light) */
-  --set-brown: #a14610;
-  --set-light-blue: #0284c7;
-  --set-pink: #be185d;
-  --set-orange: #c2410c;
-  --set-red: #b91c1c;
-  --set-yellow: #a16207;
-  --set-green: #15803d;
-  --set-dark-blue: #1d4ed8;
-  --set-airport: #475569;
-  --set-utility: #6d28d9;
+  --set-brown: #a8521a;
+  --set-light-blue: #1b82bf;
+  --set-pink: #c03a7d;
+  --set-orange: #d06a1c;
+  --set-red: #c9302c;
+  --set-yellow: #b88a0a;
+  --set-green: #1f8a4f;
+  --set-dark-blue: #3352d6;
+  --set-airport: #5f6680;
+  --set-utility: #7454d6;
 
-  /* Corner tile gradients */
-  --corner-go-bg: linear-gradient(135deg, #059669 0%, #10b981 100%);
-  --corner-jail-bg: linear-gradient(135deg, #334155 0%, #475569 100%);
-  --corner-vacation-bg: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
-  --corner-go-to-jail-bg: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%);
+  --corner-go-bg: linear-gradient(150deg, #1f8a6e 0%, #2aa585 100%);
+  --corner-jail-bg: linear-gradient(150deg, #4a4c6a 0%, #5d6084 100%);
+  --corner-vacation-bg: linear-gradient(150deg, #2a7cab 0%, #3b95c9 100%);
+  --corner-go-to-jail-bg: linear-gradient(150deg, #b13a4d 0%, #cc4d60 100%);
 
-  /* Surfaces & Ink (Bright, crisp, clean) */
-  --bg: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
-  --bg-color: #f8fafc;
-  --bg-pattern: #edf2f7;
-  --topbar-bg: #1e1b4b;
+  --bg-color: #eeedf7;
+  --bg: radial-gradient(1200px 700px at 50% -10%, #ffffff 0%, transparent 60%), #eeedf7;
+  --bg-pattern: #e4e2f2;
+  --topbar-bg: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-current: rgba(79, 70, 229, 0.12);
-  --paper: #ffffff;
-  --paper-edge: #cbd5e1;
-  --paper-hover: #f8fafc;
-  --ink: #0f172a;
-  --ink-soft: #334155;
-  --ink-faint: #64748b;
-  --line: #e2e8f0;
+  --surface-2: #f2f1f9;
+  --surface-current: rgba(11, 122, 94, 0.10);
+  --paper: #f6f5fc;
+  --paper-edge: #dddbea;
+  --paper-hover: #ecebf6;
+  --ink: #16142e;
+  --ink-soft: #45426a;         /* 9.5:1 on white */
+  --ink-faint: #5f5c84;        /* 6.4:1 on white */
+  --line: #e2e0ef;
   --toast-bg: #ffffff;
-  --toast-ink: #0f172a;
-  --toast-border: #cbd5e1;
+  --toast-ink: #16142e;
+  --toast-border: #dddbea;
 
-  /* Board & Centre */
-  --board-felt: #f8fafc;
-  --board-border: #94a3b8;
-  --board-glow: 0 6px 24px rgba(15, 23, 42, 0.12);
-  --center: #f1f5f9;
-  --center-glow: radial-gradient(circle at 50% 50%, rgba(79, 70, 229, 0.1) 0%, transparent 70%);
+  --board-felt: #e6e4f3;
+  --board-border: #d3d0e6;
+  --board-glow: 0 14px 34px rgba(30, 25, 80, 0.14);
+  --center: #f6f5fc;
+  --center-glow: radial-gradient(circle at 50% 45%, rgba(11, 122, 94, 0.10) 0%, transparent 70%);
+  --tile-bg: #ffffff;
+  --tile-bg-2: #f6f5fc;
+  --tile-edge: #dcd9ec;
+  --tile-ink: #16142e;
+  --pill-bg: #ecebf6;
+  --pill-ink: #16142e;
+  --flag-bg: #ffffff;
 
-  /* Dice */
-  --dice-bg: #ffffff;
-  --dice-ink: #0f172a;
-  --dice-shadow: 0 4px 14px rgba(15, 23, 42, 0.22);
+  --dice-shadow: inset -3px -4px 8px rgba(30, 20, 80, 0.14), inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+    0 10px 18px rgba(30, 25, 80, 0.22), 0 2px 4px rgba(30, 25, 80, 0.18);
 
-  /* Semantic */
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
+  --primary: #0b7a5e;          /* white text 5.4:1 */
+  --primary-hover: #096650;
   --primary-ink: #ffffff;
-  --accent: #d97706;
-  --good: #059669;
-  --bad: #dc2626;
-  --warn-bg: #fef3c7;
-  --warn-ink: #92400e;
-  --danger-bg: #fee2e2;
-  --focus: #6366f1;
+  --accent: #b5650a;
+  --good: #0b7a4e;
+  --bad: #c0283c;
+  --good-bg: #0e7356;
+  --bad-bg: #b8293d;
+  --warn-bg: #fff3d6;
+  --warn-ink: #7a4a00;
+  --danger-bg: #fde4e6;
+  --focus: #6a4cff;
 
-  --surprise-accent: #ea580c;
-  --treasure-accent: #0891b2;
+  --surprise-accent: #c4570d;
+  --treasure-accent: #0b7f96;
 
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
-  --shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
-  --shadow-lg: 0 14px 34px rgba(15, 23, 42, 0.16);
+  --shadow-sm: 0 1px 3px rgba(30, 25, 80, 0.08);
+  --shadow: 0 8px 22px rgba(30, 25, 80, 0.08);
+  --shadow-lg: 0 16px 36px rgba(30, 25, 80, 0.16);
 }
 
 @media (prefers-reduced-motion: reduce) {

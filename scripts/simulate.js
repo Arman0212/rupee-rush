@@ -4,12 +4,15 @@
  * Random-bot simulator for the game engine.
  *
  *   node scripts/simulate.js [games] [--games N] [--seed S] [--players K]
- *                            [--max-turns T] [--workers W] [--no-trades] [--no-auctions]
+ *                            [--max-turns T] [--workers W] [--no-trades] [--no-auctions] [--no-bots]
  *
  * Plays N games (default 2000) between 2-6 bots that pick from
  * getLegalActions(), biased towards buying and building so games end. Bots
  * also bid in auctions (up to a private cap) and propose and answer trades,
- * mostly to complete colour sets. The server's auction timer is emulated by
+ * mostly to complete colour sets. Unless --no-bots is given, some seats are
+ * taken by the real computer players (server/bots, easy, medium and hard),
+ * which see only publicState() and play alongside the random bots, so their
+ * every move is checked against the same invariants. The server's auction timer is emulated by
  * calling game.closeAuction() when bidding stalls. Every
  * game has its own seed, which drives both the engine and the bots, so any
  * failure can be replayed exactly with `--seed <seed> --games 1`. Games are
@@ -28,6 +31,10 @@ const { AUCTION, TRADE } = require('../shared/rules');
 const { createRng, randomInt } = require('../server/game/rng');
 const { BOARD, MAX_BUILDINGS, TILE, JAIL_INDEX, groupMembers, getTileById } = require('../shared/board');
 const { DECKS } = require('../shared/cards');
+const { Bot } = require('../server/bots/Bot');
+
+/** Seat kinds with --bots (the default): the random simulator bot, or a strategy bot. */
+const SEAT_KINDS = ['sim', 'easy', 'medium', 'hard'];
 
 const ACTIVE = new Set([PHASE.AWAITING_ROLL, PHASE.BUY_DECISION, PHASE.AWAITING_END, PHASE.AUCTION]);
 const MAX_ACTIONS_PER_GAME = 200000;
@@ -37,7 +44,7 @@ const MAX_ACTIONS_PER_GAME = 200000;
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const opts = { games: 2000, seed: 1, players: null, maxTurns: 2000, workers: os.availableParallelism(), trades: true, auctions: true };
+  const opts = { games: 2000, seed: 1, players: null, maxTurns: 2000, workers: os.availableParallelism(), trades: true, auctions: true, bots: true };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => Number(argv[++i]);
@@ -48,6 +55,7 @@ function parseArgs(argv) {
     else if (arg === '--workers') opts.workers = next();
     else if (arg === '--no-trades') opts.trades = false;
     else if (arg === '--no-auctions') opts.auctions = false;
+    else if (arg === '--no-bots') opts.bots = false;
     else if (/^\d+$/.test(arg)) opts.games = Number(arg);
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -221,9 +229,10 @@ function checkMoney(state, ledger) {
     assert(p.cash >= 0 || p.debt.owed.length > 0, `${p.id} has negative cash but no debt`);
     total += p.cash + p.debt.amount;
   }
-  assert(state.jackpot >= 0, `jackpot is negative (${state.jackpot})`);
-  const expected = ledger.bankOut - ledger.bankIn;
-  assert(total === expected, `money in play ${total} != bank out ${ledger.bankOut} - bank in ${ledger.bankIn} = ${expected}`);
+  const devOut = state.devLedger ? state.devLedger.bankOut || 0 : 0;
+  const devIn = state.devLedger ? state.devLedger.bankIn || 0 : 0;
+  const expected = (ledger.bankOut + devOut) - (ledger.bankIn + devIn);
+  assert(total === expected, `money in play ${total} != bank out ${ledger.bankOut + devOut} - bank in ${ledger.bankIn + devIn} = ${expected}`);
 }
 
 function checkBuildings(state) {
@@ -357,7 +366,23 @@ function playGame(seed, opts) {
   let game = new Game({ seed, now: () => ++clock, settings: { auctions: opts.auctions } });
   const ledger = { bankOut: 0, bankIn: 0 };
   const caps = new Map(); // auction caps per bot
-  const tally = { auctions: 0, auctionsSold: 0, tradesProposed: 0, tradesAccepted: 0 };
+  const tally = { auctions: 0, auctionsSold: 0, tradesProposed: 0, tradesAccepted: 0, botMoves: 0 };
+  // Seat kinds come from their own rng, so turning bots off doesn't change the random bots' games.
+  const kindRng = createRng((seed ^ 0x51ed27) >>> 0);
+  const strategyBots = new Map(); // playerId -> Bot
+  for (let i = 0; i < playerCount; i++) {
+    const kind = opts.bots ? SEAT_KINDS[randomInt(kindRng, SEAT_KINDS.length)] : 'sim';
+    if (kind !== 'sim') strategyBots.set(`bot${i}`, new Bot({ id: `bot${i}`, difficulty: kind, seed: seed + i }));
+  }
+  /** A strategy bot's move, from the public state only, or null. */
+  const botMove = (playerId, mustAct) => {
+    const legalActions = game.getLegalActions(playerId);
+    if (!legalActions.length) return null;
+    const action = strategyBots.get(playerId).act({ state: game.publicState(), legalActions, mustAct });
+    if (action) tally.botMoves++;
+    return action;
+  };
+  const isBot = (id) => strategyBots.has(id);
   const history = [];
   const landings = new Map();
 
@@ -403,7 +428,13 @@ function playGame(seed, opts) {
           continue;
         }
         const bidder = able[randomInt(botRng, able.length)];
-        act(bidder.id, auctionChoice(game.state, bidder, game.getLegalActions(bidder.id), caps, botRng));
+        if (isBot(bidder.id)) {
+          const move = botMove(bidder.id, false);
+          if (move) act(bidder.id, move);
+          else serverClose();
+        } else {
+          act(bidder.id, auctionChoice(game.state, bidder, game.getLegalActions(bidder.id), caps, botRng));
+        }
         continue;
       }
 
@@ -412,16 +443,19 @@ function playGame(seed, opts) {
         for (const t of [...game.state.trades]) {
           if (!game.state.trades.includes(t) || game.state.phase === PHASE.AUCTION) continue;
           const roll = botRng.next();
-          if (roll < 0.5) {
+          if (isBot(t.toId)) {
+            const move = botMove(t.toId, false);
+            if (move) act(t.toId, move);
+          } else if (roll < 0.5) {
             const to = game.state.players.find((p) => p.id === t.toId);
             act(to.id, answerTrade(game.state, to, t, game.getLegalActions(to.id), botRng));
-          } else if (roll < 0.55) {
+          } else if (roll < 0.55 && !isBot(t.fromId)) {
             act(t.fromId, { type: 'cancelTrade', tradeId: t.id });
           }
         }
         // Occasionally someone proposes a trade.
         if (game.state.phase !== PHASE.GAME_OVER && game.state.phase !== PHASE.AUCTION && botRng.next() < 0.06) {
-          const proposers = live().filter((p) => p.cash >= 0 && game.state.trades.filter((t) => t.fromId === p.id).length < TRADE.maxOpenPerPlayer);
+          const proposers = live().filter((p) => !isBot(p.id) && p.cash >= 0 && game.state.trades.filter((t) => t.fromId === p.id).length < TRADE.maxOpenPerPlayer);
           if (proposers.length) {
             const bot = proposers[randomInt(botRng, proposers.length)];
             const offer = proposeTrade(game.state, bot, botRng);
@@ -433,12 +467,13 @@ function playGame(seed, opts) {
       // Players in debt sometimes sort it out on someone else's turn.
       for (const p of game.state.players) {
         if (p.id !== game.state.currentPlayerId && p.cash < 0 && !p.bankrupt && botRng.next() < 0.5) {
-          act(p.id, chooseAction(game.getLegalActions(p.id), p, botRng, game.state));
+          const move = isBot(p.id) ? botMove(p.id, false) : chooseAction(game.getLegalActions(p.id), p, botRng, game.state);
+          if (move) act(p.id, move);
         }
       }
       if (game.state.phase === PHASE.GAME_OVER) break;
       const current = game.state.players.find((p) => p.id === game.state.currentPlayerId);
-      act(current.id, chooseAction(game.getLegalActions(current.id), current, botRng, game.state));
+      act(current.id, isBot(current.id) ? botMove(current.id, true) : chooseAction(game.getLegalActions(current.id), current, botRng, game.state));
     }
 
     const finished = game.state.phase === PHASE.GAME_OVER;
@@ -450,6 +485,7 @@ function playGame(seed, opts) {
       playerCount,
       landings,
       tally,
+      botSeats: [...strategyBots.values()].map((b) => b.difficulty),
     };
   } catch (err) {
     // Plain data, so it survives the trip back from a worker thread.
@@ -486,6 +522,9 @@ function reportSummary(results, ms) {
   const total = (k) => results.reduce((t, r) => t + r.tally[k], 0);
   console.log(`  auctions: ${total('auctions')} (${total('auctions') ? (100 * total('auctionsSold') / total('auctions')).toFixed(0) : 0}% sold)   trades: ${total('tradesAccepted')} accepted of ${total('tradesProposed')} proposed`);
   console.log(`  average turns: ${avg(finished.map((r) => r.turns)).toFixed(1)} (finished games), ${avg(results.map((r) => r.turns)).toFixed(1)} (all)`);
+  const seats = { easy: 0, medium: 0, hard: 0 };
+  for (const r of results) for (const d of r.botSeats) seats[d]++;
+  if (total('botMoves')) console.log(`  strategy bots: ${total('botMoves')} moves checked (seats: ${seats.easy} easy, ${seats.medium} medium, ${seats.hard} hard)`);
 
   console.log('\n  Win rate by seat (finished games):');
   for (let seat = 0; seat < 6; seat++) {

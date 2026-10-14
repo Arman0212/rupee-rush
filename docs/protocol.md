@@ -70,7 +70,8 @@ Errors: `unknown colour`, `colour already taken`, `colours are fixed once the ga
 
 ### `updateSettings` `{ settings }` (host only, lobby only)
 A partial settings object, merged into the current settings and passed through
-`sanitizeSettings` (unknown keys dropped, numbers clamped and stepped).
+`sanitizeSettings` (unknown keys dropped, numbers clamped and stepped). Room-only
+settings: `allowBots` (default `true`) and `botChat` (default `true`).
 `maxPlayers` is never set below the number of seated players.
 ```js
 socket.emit('updateSettings', { settings: { startingCash: 2000, turnTimerSeconds: 60 } }, cb);
@@ -81,6 +82,29 @@ socket.emit('updateSettings', { settings: { startingCash: 2000, turnTimerSeconds
 In the lobby: anyone except yourself. Mid-game: only a player who has been
 disconnected for 60 s or more, which calls `game.removePlayer` (bankruptcy to the
 bank). The kicked socket, if connected, receives `kicked`.
+
+### `addBot` `{ difficulty? }` (host only, lobby only)
+Seats a computer player. `difficulty` is `'easy'`, `'medium'` (the default) or
+`'hard'`. The bot takes the next free colour and an unused name such as
+`Bot Aria`, counts towards `maxPlayers`, is never host, has no socket or token, and
+always shows as connected. Refused when `settings.allowBots` is off.
+```js
+socket.emit('addBot', { difficulty: 'hard' }, cb);
+// { ok: true, playerId: '5be1…' }
+// errors: 'only the host can do that', 'room is full', 'unknown difficulty',
+//         'bots are turned off for this room', 'only possible while the room is in lobby'
+```
+
+### `removeBot` `{ playerId }` (host only, lobby only)
+Frees a bot's seat (room event `seatLeft` with `reason: 'removed'`). Turning
+`allowBots` off in `updateSettings` removes every bot in the lobby the same way.
+
+### `replaceWithBot` `{ playerId, difficulty? }` (host only, mid-game)
+A bot takes over the seat of a human who has disconnected (any time after the
+disconnect, no 60 s wait): same id, name, colour, cash, cities and position. The
+player's token stops working, so they can't reclaim the seat. Refused for connected
+players, bots, bankrupt players, or when `allowBots` is off. Room event:
+`seatReplacedByBot { playerId, difficulty }`.
 
 ### `startGame` `{}` (host only)
 Needs 2+ players. Creates the engine game from the seats (ids, names, colours) and
@@ -137,7 +161,7 @@ one per broadcast; a socket never sees it go backwards.
     hostId: '9f2c…',
     settings: { startingCash: 1500, goSalary: 200, maxPlayers: 6, ... },
     colors: ['#e63946', ...],                       // the palette for pickColor
-    players: [{ id, name, color, connected, disconnectedAt, isHost }],
+    players: [{ id, name, color, connected, disconnectedAt, isHost, bot }],  // bot: null | 'easy' | 'medium' | 'hard'
   },
   publicState: null | { phase, turnNumber, currentPlayerId, winnerId, players, properties,
                         jackpot, turn, decks: { surprise: { remaining }, treasure: { remaining } },
@@ -159,7 +183,9 @@ Sent privately to each seated socket right after every `state`.
 ```
 
 ### `chat`
-`{ id: 12, playerId, name, text, ts }`
+`{ id: 12, playerId, name, text, ts, bot? }`. Bots occasionally post a short line
+(`bot: true`) when they complete a colour set, go bankrupt or win, unless
+`settings.botChat` is off.
 
 ### `chatHistory`
 `{ messages: [chat, ...] }` (the last 100), sent to a socket when it joins or reconnects.
@@ -183,8 +209,9 @@ no longer in the room and should not auto-rejoin.
 
 | type | fields | when |
 |---|---|---|
-| `seatJoined` | `playerId, name` | someone joined the lobby |
-| `seatLeft` | `playerId, reason: 'left' \| 'kicked' \| 'timeout'` | a seat was freed |
+| `seatJoined` | `playerId, name, bot?` | someone joined the lobby (`bot` is the difficulty for a bot) |
+| `seatLeft` | `playerId, reason: 'left' \| 'kicked' \| 'timeout' \| 'removed'` | a seat was freed (`removed`: a bot) |
+| `seatReplacedByBot` | `playerId, difficulty` | a bot took over a disconnected player's seat |
 | `seatDisconnected` | `playerId` | socket dropped; seat kept |
 | `seatReconnected` | `playerId` | seat reclaimed with its token |
 | `hostChanged` | `playerId` | host was away 60 s mid-game |
@@ -224,7 +251,15 @@ up in a set, cash ran short) are cancelled automatically with a reason.
   is kept; after 60 s the host may kick them, and a disconnected host hands hosting to
   the next connected player. If the timer setting is off and the current player is
   disconnected, their turn is auto-played after 60 s so the game never stalls.
-- Rooms are deleted after 30 minutes with no connected sockets, or 6 hours in total.
+- **Bot moves**: after every change the room arms one timer for the bots: 600–1500 ms
+  (300–700 ms during an auction), so they feel like people thinking. Any newer change
+  cancels it and arms a fresh one. When it fires, the first bot that wants to act
+  (auction bidders and off-turn bots answering trades or raising cash, then the bot
+  whose turn it is) makes one move, chosen from `publicState` and its legal actions
+  only. Bots are never timed out, never auto-passed in auctions and never kicked for
+  being away; while no human is connected they wait.
+- Rooms are deleted after 30 minutes with no connected humans (bots don't count), or
+  6 hours in total. A room whose last human leaves is deleted at once, bots and all.
 
 ## HTTP
 

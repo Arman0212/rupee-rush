@@ -1,5 +1,6 @@
 // Optional sounds, synthesised with WebAudio (no files). Muted by default.
 import { storage } from './dom.js';
+import { setIcon } from './ui/icons.js';
 
 const KEY = 'rr:sound';
 
@@ -44,7 +45,7 @@ export function createSound(toggleButton) {
     toggleButton.setAttribute('aria-pressed', String(enabled));
     toggleButton.setAttribute('aria-label', enabled ? 'Sound on' : 'Sound off');
     toggleButton.title = enabled ? 'Sound on (click to mute)' : 'Sound off (click to unmute)';
-    toggleButton.firstElementChild.textContent = enabled ? '🔊' : '🔇';
+    setIcon(toggleButton, enabled ? 'sound' : 'mute');
   }
 
   toggleButton.addEventListener('click', () => {

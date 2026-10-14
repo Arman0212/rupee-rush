@@ -18,6 +18,7 @@ const { RoomManager } = require('./rooms/RoomManager');
 const { attachHandlers, createTransport } = require('./net/handlers');
 const { normalizeCode } = require('./net/validate');
 const { createLogger } = require('./log');
+const { setupDevServer } = require('./dev/devServer');
 const rules = require('../shared/rules');
 const { GAME_NAME, GAME_TAGLINE } = rules;
 
@@ -53,7 +54,13 @@ function indexRenderer() {
   };
 }
 
-function createServer({ log = createLogger(), clock } = {}) {
+/**
+ * @param {object} [opts]
+ * @param {object} [opts.log]
+ * @param {object} [opts.clock]    { now, setTimeout, clearTimeout }
+ * @param {object} [opts.botDelay] how long bots "think", see Room (scripts shorten it)
+ */
+function createServer({ log = createLogger(), clock, botDelay } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1); // one proxy hop (Render, Railway): real protocol, host and client IP
@@ -61,8 +68,9 @@ function createServer({ log = createLogger(), clock } = {}) {
   // Both transports: websocket where possible, long-polling through proxies that block it.
   const io = new Server(httpServer, { maxHttpBufferSize: MAX_PAYLOAD_BYTES, transports: ['websocket', 'polling'] });
 
-  const manager = new RoomManager({ transport: createTransport(io), log, ...(clock ? { clock } : {}) });
+  const manager = new RoomManager({ transport: createTransport(io), log, botDelay, ...(clock ? { clock } : {}) });
   attachHandlers(io, manager, { log, ...(clock ? { now: clock.now } : {}) });
+  setupDevServer({ app, io, manager, log, clock });
 
   const renderIndex = indexRenderer();
   app.get('/health', (req, res) => res.json({ ok: true, ...manager.stats() }));

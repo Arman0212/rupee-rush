@@ -28,6 +28,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   auctionSeconds: 10, // timer resets on every bid
   turnTimerSeconds: 0, // 0 = no turn timer
   isPrivate: false, // hidden from the public room list
+  allowBots: true, // the host may add computer players
+  botChat: true, // computer players say a line now and then
 });
 
 const SETTING_LIMITS = Object.freeze({

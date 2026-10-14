@@ -9,7 +9,9 @@
  * Covers: create/join by code, room list, settings, colours, chat, starting,
  * random play from legalActions until game over (or a turn cap), a mid-game
  * disconnect + token reconnect, a second-tab takeover, out-of-turn and garbage
- * actions, and play-again. Throughout it asserts that no token ever appears in
+ * actions, and play-again. Then one human plays a whole game against three
+ * bots (easy, medium, hard): adding and removing bots, at least one auction
+ * and a trade the bots must answer. Throughout it asserts that no token ever appears in
  * a server→client event and that state versions strictly increase per socket.
  * Exits 0 on success, 1 on failure.
  */
@@ -21,7 +23,9 @@ const { PLAYER_COLORS, GAME_NAME } = require('../shared/rules');
 
 const TURN_CAP = 400;
 const WAIT_MS = 5000;
-const WATCHDOG_MS = 120_000;
+const WATCHDOG_MS = 240_000;
+/** Bots normally think for 0.6-1.5s; here they're quick so a whole game fits in the run. */
+const BOT_DELAY = { normal: [5, 15], auction: [3, 8] };
 
 const quietLog = { log() {}, warn() {}, error: (...args) => console.error('[server]', ...args) };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -101,7 +105,7 @@ function chooseAction(legal, inDebt) {
 // ---------------------------------------------------------------------------
 
 async function run() {
-  const server = createServer({ log: quietLog });
+  const server = createServer({ log: quietLog, botDelay: BOT_DELAY });
   const port = await server.listen(0);
   const url = `http://localhost:${port}`;
   const tokens = new Set();
@@ -138,7 +142,7 @@ async function run() {
     assert.ok(listed.rooms.some((r) => r.code === code && r.hostName === 'Host'));
 
     for (const [i, c] of clients.slice(1).entries()) {
-      const r = await c.call('joinRoom', { code: code.toLowerCase(), name: i === 0 ? 'Host' : `Bot ${i + 2}` });
+      const r = await c.call('joinRoom', { code: code.toLowerCase(), name: i === 0 ? 'Host' : `Player ${i + 2}` });
       assert.ok(r.ok, r.error);
       tokens.add(r.token);
       c.token = r.token;
@@ -249,6 +253,8 @@ async function run() {
     }
     assert.ok(reconnectDone, 'reconnect scenario ran');
 
+    await botScenario();
+
     // --- Global assertions -----------------------------------------------------------
     for (const c of allClients) {
       const everything = JSON.stringify(c.inbox);
@@ -307,6 +313,73 @@ async function run() {
     assert.equal(host.state.publicState.properties['tel-aviv'].ownerId, other.playerId);
     assert.deepEqual(host.state.publicState.trades, []);
     step(`trade over sockets: ${other.label} bought Tel Aviv from ${bidder.label} for ₹90`);
+  }
+
+  /** One human against three bots, to game over. */
+  async function botScenario() {
+    const human = await newClient('Hema');
+    let r = await human.call('createRoom', { name: 'Hema' });
+    assert.ok(r.ok, r.error);
+    tokens.add(r.token);
+    const me = r.playerId;
+    await human.until(() => human.state && human.state.room, 'lobby state');
+    assert.ok((await human.call('updateSettings', { settings: { startingCash: 500, goSalary: 0, auctionSeconds: 5 } })).ok);
+    for (const difficulty of ['easy', 'medium', 'hard', 'medium']) {
+      r = await human.call('addBot', { difficulty });
+      assert.ok(r.ok, r.error);
+    }
+    await human.until(() => human.state.room.players.length === 5, 'four bots seated');
+    const extra = human.state.room.players.at(-1);
+    assert.ok((await human.call('removeBot', { playerId: extra.id })).ok);
+    assert.equal((await human.call('removeBot', { playerId: me })).error, 'no such bot');
+    await human.until(() => human.state.room.players.length === 4, 'bot removed');
+    const bots = human.state.room.players.filter((p) => p.bot);
+    assert.deepEqual(bots.map((b) => b.bot), ['easy', 'medium', 'hard']);
+    assert.ok(bots.every((b) => b.name.startsWith('Bot ') && b.connected && !b.isHost));
+    step(`lobby: added ${bots.map((b) => `${b.name} (${b.bot})`).join(', ')}; removed one`);
+
+    assert.ok((await human.call('startGame')).ok);
+    const botIds = new Set(bots.map((b) => b.id));
+    let proposed = false;
+    let moves = 0;
+    const started = Date.now();
+    const actionable = (legal) => legal.filter((a) => a.type !== 'cancelTrade');
+    const finished = () => human.state.room.status === 'finished';
+    while (!finished()) {
+      await human.until(() => finished() || (human.you && human.you.version === human.state.version && actionable(human.you.legalActions).length), 'a move for the human or game over', 60_000);
+      if (finished()) break;
+      const ps = human.state.publicState;
+      const legal = actionable(human.you.legalActions);
+      const mine = ps.players.find((p) => p.id === me);
+      const botTile = Object.keys(ps.properties).find((id) => botIds.has(ps.properties[id].ownerId) && !ps.properties[id].mortgaged);
+      let action;
+      if (legal.some((a) => a.type === 'declineTrade')) action = legal.find((a) => a.type === 'declineTrade');
+      else if (legal.some((a) => a.type === 'pass')) action = { type: 'pass' };
+      else if (legal.some((a) => a.type === 'decline')) action = { type: 'decline' }; // every purchase goes to auction
+      else if (!proposed && botTile && mine.cash > 0 && legal.some((a) => a.type === 'roll' || a.type === 'endTurn')) {
+        // A lowball offer the bot has to answer.
+        action = { type: 'proposeTrade', toId: ps.properties[botTile].ownerId, give: { cash: 1 }, get: { tileIds: [botTile] } };
+        proposed = true;
+      } else action = chooseAction(legal, mine.cash < 0);
+      r = await human.call('action', action);
+      moves++;
+      if (!r.ok && /rate limited/.test(r.error)) await sleep(1000);
+      // Anything else (say, the state moved on under us) just means: look again.
+    }
+    const events = human.received('state').flatMap((st) => st.events);
+    const ps = human.state.publicState;
+    assert.ok(events.some((e) => e.type === 'auctionStarted'), 'at least one auction');
+    assert.ok(events.some((e) => e.type === 'bidPlaced' && botIds.has(e.playerId)), 'a bot bid');
+    const answered = events.find((e) => (e.type === 'tradeDeclined' || e.type === 'tradeAccepted') && botIds.has(e.toId));
+    assert.ok(answered, 'a bot answered a trade');
+    assert.ok(events.some((e) => e.type === 'turnTimedOut') === false, 'nobody was timed out');
+    const lines = human.received('chat').filter((m) => m.bot);
+    assert.ok(lines.length > 0, 'bots said something');
+    const winner = ps.players.find((p) => p.id === ps.winnerId);
+    const botTrades = events.filter((e) => e.type === 'tradeProposed' && botIds.has(e.fromId)).length;
+    step(`1 human + 3 bots: game over after ${ps.turnNumber} turns in ${((Date.now() - started) / 1000).toFixed(1)}s, ${winner.name} wins`);
+    step(`  ${events.filter((e) => e.type === 'auctionStarted').length} auctions, a bot ${answered.type === 'tradeAccepted' ? 'accepted' : 'declined'} the human's offer, bots proposed ${botTrades} trades, ${lines.length} bot chat lines, ${moves} human moves`);
+    human.socket.disconnect();
   }
 
   // Disconnect a non-host mid-game, reconnect with its token, then take over from a second tab.

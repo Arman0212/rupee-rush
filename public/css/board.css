@@ -1,6 +1,7 @@
 /* The board: an 11×11 grid, corners 1.6× a side tile, scaled to fit.
    Sizes inside the board use container units of the board itself, so the
-   whole thing scales as one piece. 12.2 = 9 side tiles + 2 corners × 1.6. */
+   whole thing scales as one piece. 12.2 = 9 side tiles + 2 corners × 1.6.
+   GO is top-left; play runs clockwise. */
 
 .board {
   container-type: inline-size;
@@ -11,11 +12,11 @@
   grid-template-columns: 1.6fr repeat(9, 1fr) 1.6fr;
   grid-template-rows: 1.6fr repeat(9, 1fr) 1.6fr;
   background: var(--board-felt);
-  border-radius: 1.6%;
-  box-shadow: 0 0 0 3px var(--board-border), var(--board-glow), var(--shadow-lg);
+  border-radius: 2.2%;
+  box-shadow: 0 0 0 1px var(--board-border), var(--board-glow);
   --cell: calc(100cqw / 12.2);
   --corner: calc(var(--cell) * 1.6);
-  --gutter: calc(var(--cell) * 0.06);
+  --gutter: calc(var(--cell) * 0.08);
 }
 
 /* ---------------------------------------------------------------- Tiles */
@@ -23,149 +24,159 @@
 .tile {
   position: relative; min-width: 0; min-height: 0;
   margin: 0; padding: 0; border: 0; background: none;
-  color: var(--ink); font: inherit; cursor: pointer;
+  color: var(--tile-ink); font: inherit; cursor: pointer;
 }
-.tile:focus-visible { outline: none; }
-.tile:focus-visible .tile-inner { outline: 3px solid var(--focus); outline-offset: 1px; z-index: 5; }
-.tile:hover .tile-inner {
-  border-color: var(--primary);
-  transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) translateY(-3px);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
-  z-index: 4;
-}
+.tile:focus-visible { outline: none; z-index: 3; }
+.tile:focus-visible .tile-inner { outline: 3px solid var(--focus); outline-offset: 2px; }
+.tile:hover { z-index: 2; }
+.tile:hover .tile-inner { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary), 0 6px 16px rgba(0, 0, 0, 0.35); }
 
-/* Content is laid out for the bottom edge (band towards the centre), then rotated. */
+/* A tall dark card laid out for the top row: outer edge at the top, inner
+   edge (facing the centre) at the bottom. The bottom row mirrors it; the
+   left and right columns turn it a quarter turn so text runs along the tile
+   (bottom-to-top on the left, top-to-bottom on the right). */
 .tile-inner {
   position: absolute; left: 50%; top: 50%;
   width: calc(var(--cell) - var(--gutter));
   height: calc(var(--corner) - var(--gutter));
   transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4%;
-  padding-bottom: calc(var(--cell) * 0.12);
-  background: var(--paper);
-  border: 1px solid var(--paper-edge);
-  border-radius: calc(var(--cell) * 0.1);
-  overflow: hidden;
-  text-align: center;
-  font-size: calc(var(--cell) * 0.15);
-  line-height: 1.05;
-  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+  background: linear-gradient(var(--tile-bg), var(--tile-bg-2));
+  border: 1px solid var(--tile-edge);
+  border-radius: calc(var(--cell) * 0.16);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+  transition: box-shadow 140ms ease, border-color 140ms ease, opacity 140ms ease;
 }
-.side-left .tile-inner { --rot: 90deg; }
-.side-top .tile-inner { --rot: 180deg; }
-.side-right .tile-inner { --rot: -90deg; }
+.side-right .tile-inner { --rot: 90deg; --unrot: -90deg; }
+.side-left .tile-inner { --rot: -90deg; --unrot: 90deg; }
 
-.tile-band {
-  flex: none; width: 100%; height: 24%;
-  background: var(--band);
-  display: flex; align-items: center; justify-content: center;
-  border-bottom: 1px solid rgb(0 0 0 / 0.15);
+/* Owner: a bar in the owner's colour along the outer edge. */
+.owner-bar {
+  display: none; position: absolute; left: 12%; right: 12%;
+  top: calc(var(--cell) * 0.05); height: calc(var(--cell) * 0.07);
+  border-radius: 999px; background: var(--owner);
+  box-shadow: 0 0 calc(var(--cell) * 0.14) var(--owner);
 }
-.tile-name {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 0 5%; font-weight: 700; overflow-wrap: anywhere; hyphens: auto;
-}
-.tile-name.is-long { font-size: 0.82em; letter-spacing: -0.02em; }
-.tile-flag { font-size: calc(var(--cell) * 0.2); line-height: 1; margin-top: calc(var(--cell) * 0.04); }
-.tile-price { font: 700 1.05em/1 var(--font-display); color: var(--ink-soft); }
-.tile-short { display: none; font: 800 1.1em/1 var(--font-display); }
-.tile-glyph { margin-top: 14%; font-size: calc(var(--cell) * 0.34); line-height: 1; color: var(--primary); }
-.tile-glyph-big { margin-top: 22%; font: 800 calc(var(--cell) * 0.52)/1 var(--font-display); }
-.tile-surprise .tile-glyph { color: var(--surprise-accent); }
-.tile-treasure .tile-glyph { color: var(--treasure-accent); }
-.tile-tax .tile-glyph { color: var(--bad); }
-.tile-surprise .tile-inner { background: linear-gradient(180deg, rgba(249, 115, 22, 0.15), transparent 60%), var(--paper); }
-.tile-treasure .tile-inner { background: linear-gradient(180deg, rgba(6, 182, 212, 0.15), transparent 60%), var(--paper); }
+.tile.owned .owner-bar { display: block; }
 
-/* Owner: a thick edge on the outer side of the tile plus a soft glow */
-.tile.owned .tile-inner {
-  box-shadow: inset 0 calc(var(--cell) * -0.09) 0 var(--owner), 0 0 10px var(--owner);
-}
-.tile.owned .tile-inner::after {
-  content: ''; position: absolute; right: 0; top: 24%;
-  border-style: solid;
-  border-width: 0 calc(var(--cell) * 0.2) calc(var(--cell) * 0.2) 0;
-  border-color: transparent var(--owner) transparent transparent;
-}
-.tile-airport.owned .tile-inner::after,
-.tile-utility.owned .tile-inner::after { top: 0; }
-
-/* Buildings sit in the set band. */
-.buildings { display: flex; align-items: center; justify-content: center; gap: 6%; width: 100%; height: 100%; }
-.house {
-  width: calc(var(--cell) * 0.15); height: calc(var(--cell) * 0.15); border-radius: 50%;
-  background: var(--good); box-shadow: 0 0 0 1.5px #fff;
-}
-.hotel {
-  width: 58%; height: 52%; border-radius: 3px;
-  background: var(--bad); box-shadow: 0 0 0 1.5px #fff;
-}
-
-/* Mortgaged: greyed out with a stamp. */
-.stamp {
-  display: none; position: absolute; left: 50%; top: 52%;
-  transform: translate(-50%, -50%) rotate(-30deg);
-  padding: 1px 3px; border: 2px solid var(--bad); border-radius: 3px;
-  color: var(--bad); background: rgba(0, 0, 0, 0.7);
-  font: 800 calc(var(--cell) * 0.12)/1 var(--font-ui); text-transform: uppercase; letter-spacing: 0.04em;
+/* Price pill near the outer edge. */
+.tile-price {
+  position: absolute; left: 50%; top: calc(var(--cell) * 0.17);
+  transform: translateX(-50%);
+  padding: 0.12em 0.5em; border-radius: 999px;
+  background: var(--pill-bg); color: var(--pill-ink);
+  font: 700 calc(var(--cell) * 0.13)/1.15 var(--font-display);
   white-space: nowrap;
 }
-[data-theme="light"] .stamp { background: rgba(255, 255, 255, 0.85); }
-.tile.mortgaged .tile-inner > :not(.stamp) { filter: grayscale(1); opacity: 0.4; }
-.tile.mortgaged .stamp { display: block; }
+
+/* Name in the middle, between the pill and the flag. Words wrap whole; long ones shrink. */
+.tile-body {
+  position: absolute; left: 5%; right: 5%;
+  top: calc(var(--cell) * 0.42); bottom: calc(var(--cell) * 0.42);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4%;
+  text-align: center;
+}
+.tile-name {
+  font: 700 clamp(7px, calc(var(--cell) * 0.16), 16px)/1.12 var(--font-display);
+  overflow-wrap: normal; word-break: normal; hyphens: none;
+  max-width: 100%;
+}
+.tile-name.is-long { font-size: clamp(7px, calc(var(--cell) * 0.142), 14px); }
+.tile-name.is-longer { font-size: clamp(6.5px, calc(var(--cell) * 0.126), 13px); letter-spacing: -0.01em; }
+.tile-short { display: none; font: 800 calc(var(--cell) * 0.26)/1 var(--font-display); letter-spacing: 0.02em; }
+
+/* Inner edge: houses, the set-colour strip, and the flag in a circle that
+   sits on the edge and overlaps the board centre slightly. */
+.buildings {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--cell) * 0.28);
+  display: flex; align-items: center; justify-content: center; gap: calc(var(--cell) * 0.04);
+}
+.house {
+  width: calc(var(--cell) * 0.13); height: calc(var(--cell) * 0.13); border-radius: 28%;
+  background: #34d399; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.hotel {
+  width: calc(var(--cell) * 0.46); height: calc(var(--cell) * 0.14); border-radius: 4px;
+  background: #ff5d6c; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.set-strip {
+  position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--cell) * 0.09);
+  background: var(--set);
+  border-radius: 0 0 calc(var(--cell) * 0.15) calc(var(--cell) * 0.15);
+}
+.tile-flag {
+  position: absolute; z-index: 2; left: 50%; bottom: calc(var(--cell) * -0.21);
+  width: calc(var(--cell) * 0.44); height: calc(var(--cell) * 0.44);
+  transform: translateX(-50%);
+  display: grid; place-items: center;
+  border-radius: 50%; background: var(--flag-bg);
+  box-shadow: 0 0 0 2px var(--set), 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+.flag-glyph { font-size: calc(var(--cell) * 0.27); line-height: 1; transform: rotate(var(--unrot, 0deg)); }
+
+/* Bottom row: the same card mirrored, text still horizontal. */
+.side-bottom .owner-bar { top: auto; bottom: calc(var(--cell) * 0.05); }
+.side-bottom .tile-price { top: auto; bottom: calc(var(--cell) * 0.17); }
+.side-bottom .buildings { bottom: auto; top: calc(var(--cell) * 0.28); }
+.side-bottom .set-strip { bottom: auto; top: 0; border-radius: calc(var(--cell) * 0.15) calc(var(--cell) * 0.15) 0 0; }
+.side-bottom .tile-flag { bottom: auto; top: calc(var(--cell) * -0.21); }
+
+/* Special tiles: a big icon with a small label. */
+.tile-icon { font-size: calc(var(--cell) * 0.42); line-height: 1; transform: rotate(var(--unrot, 0deg)); }
+.tile:not(.tile-city) .tile-body { top: calc(var(--cell) * 0.4); bottom: calc(var(--cell) * 0.1); justify-content: space-evenly; }
+.tile:not(.tile-city):not(:has(.tile-price)) .tile-body { top: calc(var(--cell) * 0.1); }
+.side-bottom:not(.tile-city) .tile-body { top: calc(var(--cell) * 0.1); bottom: calc(var(--cell) * 0.4); }
+.side-bottom:not(.tile-city):not(:has(.tile-price)) .tile-body { bottom: calc(var(--cell) * 0.1); }
+.tile:not(.tile-city) .tile-name { font-size: clamp(6.5px, calc(var(--cell) * 0.125), 13px); color: var(--ink-soft); }
+.tile-surprise .tile-inner { background: linear-gradient(rgba(255, 157, 77, 0.16), transparent 70%), linear-gradient(var(--tile-bg), var(--tile-bg-2)); }
+.tile-treasure .tile-inner { background: linear-gradient(rgba(76, 212, 236, 0.16), transparent 70%), linear-gradient(var(--tile-bg), var(--tile-bg-2)); }
+
+/* Mortgaged: dimmed. */
+.tile.mortgaged .tile-inner { opacity: 0.4; filter: grayscale(0.8); }
 
 /* ---------------------------------------------------------------- Corners */
 
 .side-corner .tile-inner {
   width: calc(var(--corner) - var(--gutter));
-  justify-content: center; gap: 6%; padding: 6%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4%;
+  padding: 6%; text-align: center; color: #ffffff;
+  border-color: transparent;
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.22);
 }
-.corner-big { font: 800 calc(var(--cell) * 0.46)/1 var(--font-display); color: #ffffff; }
-.corner-mid { font-size: calc(var(--cell) * 0.2); font-weight: 700; color: #ffffff; }
-.corner-note { font-size: calc(var(--cell) * 0.13); color: rgba(255, 255, 255, 0.85); font-weight: 600; }
+.tile-go .tile-inner { background: var(--corner-go-bg); }
+.tile-vacation .tile-inner { background: var(--corner-vacation-bg); }
+.tile-go-to-jail .tile-inner { background: var(--corner-go-to-jail-bg); }
+.corner-glyph { font-size: calc(var(--cell) * 0.5); line-height: 1; }
+.corner-big { font: 800 calc(var(--cell) * 0.4)/1 var(--font-display); }
+.corner-mid { font: 800 calc(var(--cell) * 0.19)/1.1 var(--font-display); }
+.corner-note { font: 600 calc(var(--cell) * 0.115)/1.2 var(--font-ui); color: rgba(255, 255, 255, 0.92); }
 .corner-note:empty { display: none; }
-.jackpot-note { color: #fde68a; font-weight: 800; font-size: calc(var(--cell) * 0.16); }
-.corner-icon { font-size: calc(var(--cell) * 0.44); line-height: 1; }
-.go-arrow { font: 800 calc(var(--cell) * 0.42)/1 var(--font-display); color: #ffffff; }
+.jackpot-note { color: #ffe9a8; font-weight: 800; font-size: calc(var(--cell) * 0.15); }
+.go-arrow { font: 800 calc(var(--cell) * 0.3)/1 var(--font-display); }
+.go-row { display: flex; align-items: center; gap: calc(var(--cell) * 0.06); }
+.tile-go .corner-glyph { font-size: calc(var(--cell) * 0.34); }
 
-.tile-go .tile-inner {
-  background: var(--corner-go-bg);
-  border-color: transparent;
-  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.2);
-}
-.tile-vacation .tile-inner {
-  background: var(--corner-vacation-bg);
-  border-color: transparent;
-  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.2);
-}
-.tile-go-to-jail .tile-inner {
-  background: var(--corner-go-to-jail-bg);
-  border-color: transparent;
-  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.2);
-}
-
-/* Jail: the barred cell faces the centre; visitors stand along the outer edges. */
-.tile-jail .tile-inner {
-  display: block; padding: 0;
-  background: var(--corner-jail-bg);
-  border-color: transparent;
-}
+/* Jail (top-right): the barred cell is the part facing the centre
+   (bottom-left); visitors stand along the outer top and right edges. */
+.tile-jail .tile-inner { display: block; padding: 0; background: var(--corner-jail-bg); }
 .jail-cell {
-  position: absolute; left: 38%; top: 0; right: 0; bottom: 38%;
+  position: absolute; left: 0; bottom: 0; right: 36%; top: 36%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6%;
   background:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.3) 0 2px, transparent 2px 17%),
-    rgba(15, 23, 42, 0.7);
-  border-left: 2px solid rgba(255, 255, 255, 0.3);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0 2px, transparent 2px 17%),
+    rgba(10, 8, 30, 0.55);
+  border-right: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0 calc(var(--cell) * 0.1) 0 calc(var(--cell) * 0.15);
 }
+.jail-icon { font-size: calc(var(--cell) * 0.26); line-height: 1; }
 .jail-label {
-  position: absolute; left: 0; right: 0; bottom: 4%;
-  font: 800 calc(var(--cell) * 0.16)/1 var(--font-display); color: #ffffff;
-  background: rgba(0, 0, 0, 0.4); padding: 2px 0;
+  font: 800 calc(var(--cell) * 0.14)/1 var(--font-display); color: #ffffff;
+  background: rgba(0, 0, 0, 0.45); padding: 2px 5px; border-radius: 4px; white-space: nowrap;
 }
 .visiting {
-  position: absolute; left: 0; right: 0; bottom: 3%;
-  font-size: calc(var(--cell) * 0.12); font-weight: 600; color: rgba(255, 255, 255, 0.8);
+  position: absolute; left: 4%; right: 4%; top: 5%;
+  font: 600 calc(var(--cell) * 0.115)/1 var(--font-ui); color: rgba(255, 255, 255, 0.92);
+  text-align: center; white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------- Centre */
@@ -173,77 +184,83 @@
 .board-center {
   grid-row: 2 / 11; grid-column: 2 / 11;
   position: relative; min-width: 0; min-height: 0;
-  margin: calc(var(--cell) * 0.14);
-  border-radius: calc(var(--cell) * 0.3);
+  margin: calc(var(--cell) * 0.16);
+  border-radius: calc(var(--cell) * 0.32);
   background: var(--center);
-  box-shadow: inset 0 0 0 2px var(--paper-edge);
+  box-shadow: inset 0 0 0 1px var(--board-border);
   overflow: hidden;
 }
-.center-glow {
-  position: absolute; left: 50%; top: 50%;
-  width: 92%; aspect-ratio: 1; transform: translate(-50%, -50%);
-  border-radius: 50%; pointer-events: none; opacity: 0.6;
-  background: var(--center-glow);
-}
+.center-glow { position: absolute; inset: 0; pointer-events: none; background: var(--center-glow); }
 .center-inner {
   position: relative; height: 100%;
-  display: flex; flex-direction: column; align-items: center; gap: calc(var(--cell) * 0.12);
-  padding: calc(var(--cell) * 0.28) calc(var(--cell) * 0.3);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: calc(var(--cell) * 0.16);
+  padding: calc(var(--cell) * 0.35);
 }
 .center-brand {
-  font: 800 calc(var(--cell) * 0.52)/1 var(--font-display);
-  color: var(--primary-hover); letter-spacing: 0.03em;
-  text-shadow: 0 2px 14px rgba(168, 85, 247, 0.45);
+  font: 800 calc(var(--cell) * 0.5)/1 var(--font-display);
+  letter-spacing: 0.02em; color: var(--ink);
+  opacity: 0.92;
 }
-[data-theme="light"] .center-brand {
-  color: var(--primary);
-  text-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+[data-mode="game"] .center-brand { font-size: calc(var(--cell) * 0.34); opacity: 0.55; }
+.center-status {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  max-width: 100%; min-height: 1.4em;
+  font: 600 max(12px, calc(var(--cell) * 0.17))/1.3 var(--font-ui); color: var(--ink-soft);
+  text-align: center;
 }
+#turn-info { white-space: nowrap; }
+#turn-info .status-text { overflow: hidden; text-overflow: ellipsis; }
+#turn-info:empty { display: none; }
 
-/* Dice */
-.dice { display: flex; gap: calc(var(--cell) * 0.22); }
-.die {
-  width: calc(var(--cell) * 0.72); height: calc(var(--cell) * 0.72);
-  min-width: 28px; min-height: 28px;
-  display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
-  padding: 13%; border-radius: 22%;
-  background: var(--dice-bg);
-  box-shadow: var(--dice-shadow);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+/* Lobby centre: room code and Start */
+.lobby-center { display: flex; flex-direction: column; align-items: center; gap: calc(var(--cell) * 0.1); text-align: center; }
+.lobby-center .room-code {
+  font: 800 max(24px, calc(var(--cell) * 0.62))/1 var(--font-display);
+  letter-spacing: 0.14em; color: var(--primary); margin: 0;
 }
-.pip { margin: 14%; border-radius: 50%; background: var(--dice-ink); visibility: hidden; }
-.dice.doubles .pip { background: var(--bad); }
+.lobby-center #lobby-start-hint { font-size: max(12px, calc(var(--cell) * 0.15)); max-width: 30ch; }
+
+/* Dice: big, rounded, with CSS shading for a 3D feel */
+.dice { display: flex; gap: calc(var(--cell) * 0.3); }
+.die {
+  width: max(46px, calc(var(--cell) * 1.05)); height: max(46px, calc(var(--cell) * 1.05));
+  display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  padding: 14%; border-radius: 24%;
+  background: var(--dice-face);
+  box-shadow: var(--dice-shadow);
+}
+.pip { margin: 16%; border-radius: 50%; background: var(--dice-pip); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55); visibility: hidden; }
+.dice.doubles .die { box-shadow: var(--dice-shadow), 0 0 0 3px var(--primary); }
 .die[data-value="1"] .pip:nth-child(5),
 .die[data-value="2"] .pip:is(:nth-child(1), :nth-child(9)),
 .die[data-value="3"] .pip:is(:nth-child(1), :nth-child(5), :nth-child(9)),
 .die[data-value="4"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(7), :nth-child(9)),
 .die[data-value="5"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(5), :nth-child(7), :nth-child(9)),
 .die[data-value="6"] .pip:is(:nth-child(1), :nth-child(3), :nth-child(4), :nth-child(6), :nth-child(7), :nth-child(9)) { visibility: visible; }
-.dice.rolling .die { animation: tumble 240ms linear infinite; }
+.dice.rolling .die { animation: tumble 260ms linear infinite; }
 .dice.rolling .die:last-child { animation-direction: reverse; }
 @keyframes tumble {
   0% { transform: rotate(0) translateY(0); }
-  50% { transform: rotate(180deg) translateY(-4px); }
+  50% { transform: rotate(180deg) translateY(-6px); }
   100% { transform: rotate(360deg) translateY(0); }
 }
 
+/* Primary actions under the dice */
+.board-center .actions { width: 100%; max-width: 440px; }
+.board-center .actions .btn-action { flex: 1 1 auto; min-height: 44px; }
+
 /* Turn timer */
-.timer { width: 70%; display: flex; align-items: center; gap: 8px; }
-.timer-track { flex: 1; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-[data-theme="light"] .timer-track { background: rgba(0, 0, 0, 0.1); }
+.timer { width: min(70%, 320px); display: flex; align-items: center; gap: 8px; }
+.timer-track { flex: 1; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .timer-bar { height: 100%; width: 100%; background: var(--primary); border-radius: inherit; }
 .timer.urgent .timer-bar { background: var(--bad); }
 .timer-text { font: 700 var(--text-sm)/1 var(--font-display); min-width: 3ch; }
 
 .jackpot {
-  font: 700 max(12px, calc(var(--cell) * 0.2))/1 var(--font-display); color: var(--accent);
-  background: rgba(245, 158, 11, 0.15); padding: 4px 12px; border-radius: 999px;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  font: 700 max(12px, calc(var(--cell) * 0.17))/1 var(--font-display); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 4px 12px; border-radius: 999px;
 }
-
-.board-center .actions { width: 100%; }
-.board-center .log { flex: 1; min-height: 0; width: 100%; overflow-y: auto; }
-.board-center .log-entry { background: var(--surface-2); }
 
 /* ---------------------------------------------------------------- Tokens */
 
@@ -258,40 +275,39 @@
   background: var(--token); color: var(--token-ink, #fff);
   border: 2px solid #fff;
   font: 800 calc(var(--size) * 0.55)/1 var(--font-display);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
   transition: left var(--step-ms) ease-in-out, top var(--step-ms) ease-in-out;
 }
-.token.current {
-  z-index: 10;
-  animation: tokenPulse 2s ease-in-out infinite;
-}
+.token.current { z-index: 10; animation: tokenPulse 2s ease-in-out infinite; }
 @keyframes tokenPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px var(--primary), 0 0 12px var(--primary), 0 3px 8px rgba(0, 0, 0, 0.5);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 0 5px var(--focus), 0 0 18px var(--focus), 0 4px 12px rgba(0, 0, 0, 0.6);
-    transform: scale(1.1);
-  }
+  0%, 100% { box-shadow: 0 0 0 3px var(--primary), 0 3px 8px rgba(0, 0, 0, 0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 0 5px var(--primary), 0 4px 12px rgba(0, 0, 0, 0.6); transform: scale(1.08); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .token.current {
-    animation: none;
-    box-shadow: 0 0 0 3px var(--primary), 0 0 10px var(--primary);
-    transform: none;
-  }
+  .token.current { animation: none; box-shadow: 0 0 0 3px var(--primary); transform: none; }
 }
 
 /* ---------------------------------------------------------------- Small boards */
 
-@container (max-width: 620px) {
-  .tile-name, .tile-price, .tile-flag, .corner-note, .visiting { display: none; }
-  .tile-city .tile-short { display: block; margin-top: 22%; font-size: calc(var(--cell) * 0.22); }
-  .tile-glyph { margin-top: 30%; font-size: calc(var(--cell) * 0.42); }
-  .jail-label { font-size: calc(var(--cell) * 0.19); }
-  .corner-big { font-size: calc(var(--cell) * 0.6); }
-  .corner-mid { font-size: calc(var(--cell) * 0.24); }
-  .center-brand { font-size: calc(var(--cell) * 0.7); }
-  .center-inner { justify-content: center; }
+/* Boards under 700px (phones, and the board next to a tab panel at ~1024px):
+   names and prices would be below ~8.5px, so cities show a three-letter code
+   and their flag, special tiles their icon, corners their big label. */
+@container (max-width: 700px) {
+  .tile-name, .tile-price, .corner-note, .visiting, .jail-icon { display: none; }
+  .tile-city .tile-short { display: block; }
+  .tile-city .tile-body { top: calc(var(--cell) * 0.16); }
+  .side-bottom.tile-city .tile-body { top: calc(var(--cell) * 0.42); bottom: calc(var(--cell) * 0.16); }
+  .tile:not(.tile-city) .tile-body { top: calc(var(--cell) * 0.1); bottom: calc(var(--cell) * 0.1); }
+  .tile-icon { font-size: calc(var(--cell) * 0.5); }
+  .tile-flag { width: calc(var(--cell) * 0.5); height: calc(var(--cell) * 0.5); }
+  .flag-glyph { font-size: calc(var(--cell) * 0.32); }
+  .owner-bar { height: calc(var(--cell) * 0.1); }
+  .house { width: calc(var(--cell) * 0.15); height: calc(var(--cell) * 0.15); }
+  .jail-label { font-size: calc(var(--cell) * 0.2); }
+  .corner-glyph { font-size: calc(var(--cell) * 0.6); }
+  .corner-big { font-size: calc(var(--cell) * 0.5); }
+  .corner-mid { font-size: calc(var(--cell) * 0.22); }
+  .center-brand { display: none; }
+  .center-inner { gap: 8px; padding: 8px; }
+  .lobby-center .room-code { font-size: 26px; }
 }

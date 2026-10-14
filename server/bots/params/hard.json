@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "tunedAt": "2026-10-14T11:31:04.454Z",
+    "generations": 25,
+    "children": 8,
+    "gamesPerChild": 600,
+    "seed": 1
+  },
+  "params": {
+    "minReserve": 38,
+    "reserveK": 0.718,
+    "completeReserveRatio": 0.204,
+    "setProgress": 0.641,
+    "completeSetBonus": 1.271,
+    "blockBonus": 0.529,
+    "deadSetPenalty": 0.267,
+    "rentWeight": 0.46,
+    "airportBonus": 0.365,
+    "utilityPenalty": 0.211,
+    "earlyBonus": 0.185,
+    "earlyTurns": 45,
+    "buyThreshold": 0.42,
+    "bidFactor": 1.041,
+    "bidCompleteBoost": 2.899,
+    "bidBlockBoost": 1.906,
+    "thirdHouseBonus": 1.218,
+    "hotelFactor": 0.736,
+    "unmortgageSlack": 5,
+    "setKeepFactor": 2.499,
+    "jailLeaveUnowned": 0.209,
+    "jailDangerRent": 507,
+    "acceptMargin": 23,
+    "tradeSetBonus": 152,
+    "setRentValue": 0.455,
+    "setGiftPremium": 0.929,
+    "mutualSetWeight": 0.456,
+    "proposeEveryTurns": 4,
+    "tradeTtlTurns": 3,
+    "offerPremium": 0.232,
+    "maxMissingForTrade": 2
+  }
+}

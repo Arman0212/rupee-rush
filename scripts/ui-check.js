@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { createServer } = require('../server/index');
+const board = require('../shared/board');
 
 const OUT = path.join(__dirname, '..', 'screenshots');
 const TURNS = Number(process.argv[2]) || 30;
@@ -29,6 +30,7 @@ const PREFERENCE = ['buy', 'roll', 'useJailCard', 'payJailFine', 'endTurn', 'dec
 const scenario = { auctionStarted: false, auctionShots: false, tradeDone: false };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const shot = (p, name, opts = {}) => p.page.screenshot({ path: path.join(OUT, `${p.label}-${name}.png`), ...opts });
 const errors = [];
 const say = (msg) => console.log(`  ✓ ${msg}`);
 
@@ -59,7 +61,7 @@ async function main() {
       players.push({ ...vp, page });
     }
     const [host, ...guests] = players;
-    const shot = (p, name, opts = {}) => p.page.screenshot({ path: path.join(OUT, `${p.label}-${name}.png`), ...opts });
+    // shot() is module-level (below) so the helpers can use it too.
     const noSideScroll = async (p, where) => {
       const extra = await p.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       if (extra > 0) errors.push(`[${p.label}] ${where}: page scrolls sideways by ${extra}px`);
@@ -85,42 +87,72 @@ async function main() {
     // --- Create and join ----------------------------------------------------------
     await host.page.fill('#home-name', host.name);
     await host.page.click('#home-create');
-    await host.page.waitForSelector('#screen-lobby:not([hidden])');
+    await host.page.waitForSelector('body[data-screen="lobby"]');
     const code = (await host.page.textContent('#lobby-code')).trim();
     for (const p of guests) {
       await p.page.goto(`${base}/r/${code}`);
       await p.page.waitForFunction((c) => document.querySelector('#home-hint').textContent.includes(c), code);
       await p.page.fill('#home-name', p.name);
       await p.page.click('#home-join-btn');
-      await p.page.waitForSelector('#screen-lobby:not([hidden])');
+      await p.page.waitForSelector('body[data-screen="lobby"]');
     }
-    await host.page.waitForFunction(() => document.querySelectorAll('#lobby-players li').length === 3);
+    await host.page.waitForFunction(() => document.querySelectorAll('#player-list li').length === 3);
     say(`room ${code}: created on desktop, joined from /r/${code} on laptop and phone`);
 
     // --- Lobby: settings, colour, chat -------------------------------------------------
-    await host.page.fill('#set-startingCash', '1000');
-    await host.page.press('#set-startingCash', 'Tab');
-    await host.page.fill('#set-auctionSeconds', '5');
-    await host.page.press('#set-auctionSeconds', 'Tab');
-    await guests[0].page.waitForFunction(() => document.querySelector('#set-startingCash').value === '1000');
+    await host.page.selectOption('#set-startingCash', '1000');
+    await host.page.selectOption('#set-auctionSeconds', '5');
+    await host.page.click('#set-vacationJackpot');
+    await showPanel(guests[0].page, 'settings');
+    await guests[0].page.waitForFunction(() => document.querySelector('#set-startingCash').value === '1000' && document.querySelector('#set-vacationJackpot').checked);
     if (!(await guests[0].page.isDisabled('#set-startingCash'))) errors.push('guest can edit settings');
+    await showPanel(guests[0].page, 'players');
+    // Phone player changes colour via "Change appearance".
+    await guests[1].page.click('[data-action="appearance"]');
     await guests[1].page.click('.colour-swatch:not(:disabled):not(.is-mine)');
     await guests[1].page.waitForSelector('.colour-swatch.is-mine');
+    await shot(guests[1], 'appearance');
+    await guests[1].page.keyboard.press('Escape');
     const evil = '<b>hi</b><img src=x onerror="window.__xss=1">';
-    await guests[0].page.fill('#lobby-chat input', evil);
-    await guests[0].page.press('#lobby-chat input', 'Enter');
+    await showPanel(guests[0].page, 'chat');
+    await guests[0].page.fill('#room-chat input', evil);
+    await guests[0].page.press('#room-chat input', 'Enter');
+    await showPanel(guests[0].page, 'players');
     await host.page.waitForFunction((t) => [...document.querySelectorAll('.chat-text')].some((n) => n.textContent === t), evil);
     const injected = await host.page.evaluate(() => document.querySelectorAll('.chat-list img, .chat-list b').length + (window.__xss ? 1 : 0));
     if (injected) errors.push('chat HTML was rendered as markup');
     for (const p of players) {
-      await shot(p, 'lobby', { fullPage: true });
+      await bothThemes(p, 'lobby');
       await noSideScroll(p, 'lobby');
     }
+    // The phone's other lobby panels.
+    for (const tab of ['settings', 'chat']) {
+      await showPanel(guests[1].page, tab);
+      await shot(guests[1], `lobby-tab-${tab}`, { fullPage: true });
+    }
+    await showPanel(guests[1].page, 'players');
     say('lobby: host-only settings, colour pick, chat rendered as text');
+
+    // --- Bots: the host adds one (badge everywhere), then removes it before the game -----
+    if (await guests[0].page.isVisible('#add-bot')) errors.push('a guest can see "Add bot"');
+    await host.page.selectOption('#add-bot-difficulty', 'hard');
+    await host.page.click('#add-bot-btn');
+    for (const p of players) {
+      await showPanel(p.page, 'players');
+      await p.page.waitForFunction(() => [...document.querySelectorAll('#player-list .badge-bot')].some((b) => b.textContent.includes('Hard')));
+    }
+    await bothThemes(host, 'lobby-bot');
+    await shot(guests[1], 'lobby-bot', { fullPage: true });
+    await host.page.locator('#sec-players').screenshot({ path: path.join(OUT, `${host.label}-bot-badge.png`) });
+    const botRows = await host.page.$$eval('#player-list li', (rows) => rows.filter((r) => r.querySelector('.badge-bot')).length);
+    if (botRows !== 1) errors.push(`expected one bot row, found ${botRows}`);
+    await host.page.click('.remove-bot-btn');
+    await host.page.waitForFunction(() => document.querySelectorAll('#player-list li').length === 3);
+    say('bots: host added a hard bot (badge on every page), then removed it');
 
     // --- Start ------------------------------------------------------------------------
     await host.page.click('#lobby-start');
-    for (const p of players) await p.page.waitForSelector('#screen-game:not([hidden])');
+    for (const p of players) await p.page.waitForSelector('body[data-screen="game"]');
     await sleep(500);
     for (const p of players) {
       await shot(p, 'game-start');
@@ -152,7 +184,15 @@ async function main() {
     await shot(host, 'tile-popup');
     await host.page.keyboard.press('Escape');
     await host.page.waitForSelector('dialog.dialog-tile', { state: 'detached' });
-    say('tile popup opens from the keyboard and closes with Escape');
+    // Airports and utilities have a group but no colour set: their popup must open too.
+    for (const id of ['tlv-airport', 'electric-company']) {
+      await host.page.focus(`[data-tile-id="${id}"]`);
+      await host.page.keyboard.press('Enter');
+      await host.page.waitForSelector('dialog.dialog-tile[open]');
+      await host.page.keyboard.press('Escape');
+      await host.page.waitForSelector('dialog.dialog-tile', { state: 'detached' });
+    }
+    say('tile popups (city, airport, utility) open from the keyboard and close with Escape');
 
     // --- Play ------------------------------------------------------------------------------
     let lastProgress = Date.now();
@@ -205,14 +245,14 @@ async function main() {
       await shot(p, 'game');
       await noSideScroll(p, 'game (late)');
     }
+    if (!(await host.page.$('dialog.dialog-gameover[open]'))) await boardShowcase(server, code, players, shot);
     if (!(await host.page.$('dialog.dialog-gameover[open]'))) await endgameScenario(server, code, players, shot);
 
     const p3 = players[2];
-    for (const tab of ['players', 'cities', 'chat']) {
-      await p3.page.click(`#tab-${tab}`);
-      await p3.page.waitForFunction((t) => document.querySelector(`#tab-${t}`).getAttribute('aria-selected') === 'true', tab);
-      await sleep(300); // let the fixed tab bar repaint before capturing
-      await shot(p3, `game-tab-${tab}`);
+    for (const tab of ['players', 'properties', 'trades', 'settings', 'chat']) {
+      await showPanel(p3.page, tab);
+      await sleep(200); // let the fixed tab bar repaint before capturing
+      await shot(p3, `game-tab-${tab}`, { fullPage: true });
     }
     say(`screenshots saved to ${path.relative(process.cwd(), OUT)}/`);
   } finally {
@@ -276,11 +316,10 @@ async function takeTurnStep(p) {
   const { page } = p;
   await assertNoBoardOverlap(p, 'during play');
   await closeCards(page);
-  const container = p.mobile ? '#mobile-actions' : '#center-actions';
-  if (p.mobile && !(await page.isVisible(container))) await page.click('#tab-actions');
+  const container = '#center-actions';
 
   // Auction: sometimes a quick bid (if affordable), otherwise pass.
-  const auctionHost = p.mobile ? '#mobile-auction' : '#center-auction';
+  const auctionHost = '#center-auction';
   if (await page.$(`${auctionHost} .auction`)) {
     if (!scenario.auctionShots) return false; // hold still until the auction screenshots are taken
     const quick = await page.$(`${auctionHost} .quick-bid:enabled`);
@@ -294,7 +333,7 @@ async function takeTurnStep(p) {
 
   // In debt: raise cash from the Cities tab, or give up via the banner.
   if (await page.$('#game-banners .banner-danger')) {
-    await page.click('#tab-cities');
+    await showPanel(page, 'properties');
     const raise = await page.$('#panel-cities button[data-action="sellHouse"]:enabled, #panel-cities button[data-action="mortgage"]:enabled');
     if (raise) await raise.click();
     else {
@@ -302,23 +341,17 @@ async function takeTurnStep(p) {
       await page.click('dialog [data-confirm]');
     }
     await waitIdle(page);
-    if (p.mobile) await page.click('#tab-actions');
     return true;
   }
 
-  // Sometimes build when the Cities tab offers it.
+  // Sometimes build when My properties offers it.
   if (Math.random() < 0.5) {
-    const tab = await page.$('#tab-cities');
-    if (tab && (await tab.isVisible())) {
-      await tab.click();
-      const build = await page.$('#panel-cities button[data-action="build"]:enabled');
-      if (build) {
-        await build.click();
-        await waitIdle(page);
-        if (p.mobile) await page.click('#tab-actions');
-        return true;
-      }
-      if (p.mobile) await page.click('#tab-actions');
+    await showPanel(page, 'properties');
+    const build = await page.$('#panel-cities button[data-action="build"]:enabled');
+    if (build) {
+      await build.click();
+      await waitIdle(page);
+      return true;
     }
   }
 
@@ -343,6 +376,103 @@ async function takeTurnStep(p) {
  * repay → debt banner → bankruptcy (with confirm) → spectating; Chitra (phone)
  * resigns via Leave → Asha wins → game-over overlay → Play again.
  */
+/**
+ * Layout checks on the live board: corners in the right places; text
+ * horizontal on the top and bottom rows and the corners, and turned exactly a
+ * quarter (along the tile) on the left and right columns; nothing spilling out
+ * of its tile or cut off; every flag circle sitting on its tile's inner edge.
+ * Returns a list of problems.
+ */
+async function boardLayoutProblems(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const boardBox = document.querySelector('#board').getBoundingClientRect();
+    const near = (a, b, tol = 3) => Math.abs(a - b) < tol;
+    const corners = { go: ['left', 'top'], jail: ['right', 'top'], vacation: ['right', 'bottom'], 'go-to-jail': ['left', 'bottom'] };
+    for (const [id, [h, v]] of Object.entries(corners)) {
+      const box = document.querySelector(`[data-tile-id="${id}"]`).getBoundingClientRect();
+      if (!near(box[h], boardBox[h]) || !near(box[v], boardBox[v])) problems.push(`${id} is not in the ${v}-${h} corner`);
+    }
+    const rotation = (node) => {
+      const t = getComputedStyle(node).transform;
+      if (!t || t === 'none') return 0;
+      const m = new DOMMatrixReadOnly(t);
+      return Math.round((Math.atan2(m.b, m.a) * 180) / Math.PI);
+    };
+    for (const tile of document.querySelectorAll('#board .tile')) {
+      const id = tile.dataset.tileId;
+      const side = [...tile.classList].find((c) => c.startsWith('side-')).slice(5);
+      const cell = tile.getBoundingClientRect();
+      const expected = { right: 90, left: -90 }[side] || 0;
+      const turn = rotation(tile.querySelector('.tile-inner'));
+      if (turn !== expected) problems.push(`${id} (${side}) is turned ${turn}°, expected ${expected}°`);
+      // Nothing else inside a tile adds its own turn, except icons and flags turned back upright.
+      for (const node of tile.querySelectorAll('.tile-inner *')) {
+        const r = rotation(node);
+        if (r && !(node.matches('.flag-glyph, .tile-icon') && r === -expected)) problems.push(`${id}: ${node.className} is rotated ${r}°`);
+      }
+      for (const part of tile.querySelectorAll('.tile-name, .tile-price, .tile-icon, .tile-short, .corner-big, .corner-mid, .corner-note, .corner-glyph, .go-arrow, .jail-label, .visiting')) {
+        if (getComputedStyle(part).display === 'none' || !part.textContent.trim()) continue;
+        const r = part.getBoundingClientRect();
+        if (r.left < cell.left - 1 || r.right > cell.right + 1 || r.top < cell.top - 1 || r.bottom > cell.bottom + 1) {
+          problems.push(`${id}: "${part.textContent}" spills out of its tile`);
+        }
+        if (part.scrollWidth > part.clientWidth + 1 && getComputedStyle(part).display !== 'inline') problems.push(`${id}: "${part.textContent}" is cut off`);
+      }
+      // The flag circle sits on the edge facing the centre.
+      const flag = tile.querySelector('.tile-flag');
+      if (flag) {
+        const f = flag.getBoundingClientRect();
+        const cx = (f.left + f.right) / 2;
+        const cy = (f.top + f.bottom) / 2;
+        const tol = f.width * 0.35;
+        const onEdge = { top: near(cy, cell.bottom, tol), bottom: near(cy, cell.top, tol), right: near(cx, cell.left, tol), left: near(cx, cell.right, tol) }[side];
+        if (!onEdge) problems.push(`${id}: flag is not on the inner edge (${side} side)`);
+      }
+    }
+    for (const node of document.querySelectorAll('.board-center *')) {
+      if (node.closest('.dice')) continue;
+      if (rotation(node)) problems.push(`board centre: ${node.className} is rotated`);
+    }
+    return problems;
+  });
+}
+
+/**
+ * Seed owners, houses, hotels and a mortgage on all four sides (server-side,
+ * like the debt scenario), let one real action broadcast it, then check the
+ * layout and capture the board in both themes on desktop and phone.
+ */
+async function boardShowcase(server, code, players, shot) {
+  const room = server.manager.get(code);
+  const state = room.game.state;
+  const ids = state.players.map((p) => p.id);
+  const tilesOf = (group) => board.groupMembers(group).map((i) => board.BOARD[i].id);
+  const give = (ownerIndex, tileIds, buildings = 0, mortgaged = false) => {
+    for (const id of tileIds) Object.assign(state.properties[id], { ownerId: ids[ownerIndex % ids.length], buildings, mortgaged });
+  };
+  for (const prop of Object.values(state.properties)) Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false });
+  give(0, tilesOf('brown'), 2); // top
+  give(1, tilesOf('lightBlue'), 0); // top, owned, no houses
+  give(1, tilesOf('orange'), 5); // right: hotels
+  give(2, [tilesOf('pink')[0]], 0, true); // right: mortgaged
+  give(2, tilesOf('yellow'), 1); // bottom
+  give(0, tilesOf('green'), 3); // left
+  give(1, tilesOf('airport').slice(0, 2)); // top and right airports
+  give(2, tilesOf('utility').slice(1)); // bottom utility
+  // One real action from whoever is on turn broadcasts the seeded board.
+  const current = players.find((p) => p.name === state.players.find((x) => x.id === state.currentPlayerId).name);
+  for (let i = 0; i < 5 && !(await takeTurnStep(current)); i++) await sleep(200);
+  await sleep(800);
+
+  for (const p of players) {
+    await closeCards(p.page);
+    for (const problem of await boardLayoutProblems(p.page)) errors.push(`[${p.label}] ${problem}`);
+  }
+  for (const p of players) await bothThemes(p, 'game');
+  say('board: GO top-left, clockwise; text along the side columns, upright elsewhere; nothing spills; flags on the inner edge');
+}
+
 async function endgameScenario(server, code, players, shot) {
   const [host, bilal, chitra] = players;
   const room = server.manager.get(code);
@@ -379,22 +509,21 @@ async function endgameScenario(server, code, players, shot) {
   say('resign with confirm → back home; winner overlay with standings');
 
   await host.page.click('dialog.dialog-gameover button:has-text("Play again")');
-  await host.page.waitForSelector('#screen-lobby:not([hidden])');
-  await bilal.page.waitForSelector('#screen-lobby:not([hidden])');
+  await host.page.waitForSelector('body[data-screen="lobby"]');
+  await bilal.page.waitForSelector('body[data-screen="lobby"]');
   await host.page.waitForSelector('#screen-game', { state: 'hidden' });
   say('play again: host and spectator back in the lobby');
   // Start a fresh game so the remaining tab screenshots show a board.
   await chitra.page.goto(`${(new URL(host.page.url())).origin}/r/${code}`);
-  await chitra.page.waitForSelector('#screen-lobby:not([hidden])');
+  await chitra.page.waitForSelector('body[data-screen="lobby"]');
   await host.page.click('#lobby-start');
-  for (const p of players) await p.page.waitForSelector('#screen-game:not([hidden])');
+  for (const p of players) await p.page.waitForSelector('body[data-screen="game"]');
 }
 
 /** Every page shows the auction panel; capture it on desktop and phone (and a bid resetting the clock). */
 async function auctionShots(players, shot) {
   const [host, laptop, phone] = players;
-  await phone.page.click('#tab-actions');
-  for (const p of players) await p.page.waitForSelector(`${p.mobile ? '#mobile-auction' : '#center-auction'} .auction`);
+  for (const p of players) await p.page.waitForSelector('#center-auction .auction');
   await shot(host, 'auction');
   await shot(phone, 'auction');
   // A bid from the laptop: the countdown bar jumps back to full on every page.
@@ -412,7 +541,7 @@ async function auctionShots(players, shot) {
 async function tradeScenario(players, shot) {
   const [host, laptop, phone] = players;
   for (const p of players) await closeCards(p.page);
-  await openTab(host.page, 'trades');
+  await showPanel(host.page, 'trades');
   await host.page.click('[data-action="newTrade"]');
   await host.page.click(`.partner-btn:has-text("${laptop.name}")`);
   const theirs = await host.page.$('.builder-col:nth-child(2) input[type="checkbox"]:enabled');
@@ -424,7 +553,7 @@ async function tradeScenario(players, shot) {
   await host.page.waitForSelector('dialog.dialog-trade', { state: 'detached' });
   await host.page.waitForSelector('.trade-outgoing');
 
-  await openTab(laptop.page, 'trades');
+  await showPanel(laptop.page, 'trades');
   await laptop.page.waitForSelector('.trade-incoming [data-action="acceptTrade"]');
   await shot(laptop, 'trade-incoming');
   await laptop.page.click('.trade-incoming [data-action="acceptTrade"]');
@@ -432,21 +561,43 @@ async function tradeScenario(players, shot) {
   await host.page.waitForSelector('.trade-outgoing', { state: 'detached' });
   say(`trade: ${host.name} proposed in the builder, ${laptop.name} accepted from the Trades tab`);
 
-  await openTab(phone.page, 'trades');
+  await showPanel(phone.page, 'trades');
   await phone.page.click('[data-action="newTrade"]');
   await phone.page.click(`.partner-btn:has-text("${host.name}")`);
   await phone.page.waitForSelector('.builder-cols');
   await shot(phone, 'trade-builder');
   await phone.page.keyboard.press('Escape');
-  await phone.page.click('#tab-actions');
-  for (const p of [host, laptop]) await p.page.click('#tab-players');
+  for (const p of players) await showPanel(p.page, 'players');
 }
 
-/** Click a sidebar tab and let it repaint before any screenshot. */
-async function openTab(page, tab) {
-  await page.click(`#tab-${tab}`);
-  await page.waitForFunction((t) => document.querySelector(`#tab-${t}`).getAttribute('aria-selected') === 'true', tab);
+/**
+ * Bring a panel into view: the tab (below 1200px) or the desktop
+ * properties/trades switch, whichever is showing. Players and chat are
+ * always visible on wide screens.
+ */
+async function showPanel(page, name) {
+  for (const sel of [`#tab-${name}`, `#subtab-${name}`]) {
+    const node = await page.$(sel);
+    if (node && (await node.isVisible())) {
+      await node.click();
+      await page.waitForFunction((s) => document.querySelector(s).getAttribute('aria-selected') === 'true', sel);
+      await sleep(150);
+      return;
+    }
+  }
+}
+
+/** Screenshot in the current theme and the other one, then switch back. */
+async function bothThemes(p, name, opts = {}) {
+  const themeNow = () => p.page.evaluate(() => document.documentElement.dataset.theme);
+  const start = await themeNow();
+  await shot(p, `${name}-${start}`, opts);
+  await p.page.click('#theme-toggle');
+  await p.page.waitForFunction((t) => document.documentElement.dataset.theme !== t, start);
   await sleep(250);
+  await shot(p, `${name}-${await themeNow()}`, opts);
+  await p.page.click('#theme-toggle');
+  await p.page.waitForFunction((t) => document.documentElement.dataset.theme === t, start);
 }
 
 async function midGameShots(players, shot, noSideScroll) {

@@ -2,6 +2,7 @@
 // Names and text go in through textContent only.
 import { el, clear } from '../dom.js';
 import { toast } from './toast.js';
+import { icon } from './icons.js';
 
 export function createChat({ net, store }) {
   let messages = [];
@@ -17,7 +18,8 @@ export function createChat({ net, store }) {
   function messageNode(m) {
     const time = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return el('li', { className: 'chat-msg' },
-      el('span', { className: 'chat-name', text: m.name, style: { '--who': colourOf(m.playerId) } }),
+      el('span', { className: 'chat-name', text: m.name, style: { '--who': colourOf(m.playerId) } },
+        m.bot ? icon('robot', { size: 12, label: 'bot' }) : null),
       el('span', { className: 'chat-text', text: m.text }),
       el('time', { className: 'chat-time', text: time, attrs: { datetime: new Date(m.ts).toISOString() } }));
   }

@@ -1,4 +1,5 @@
-// Game screen: board, centre panel, sidebar, banners and the game-over overlay.
+// Game mode of the room screen: board, centre (dice, actions, status), my
+// properties and trades, banners and the game-over overlay.
 //
 // Static things (ownership, cash, buttons) repaint straight from the store.
 // Things that happen (dice, token walks, cards, toasts) run through an effects
@@ -15,15 +16,17 @@ import { createTilePopup } from '../ui/popup.js';
 import { createAuctionPanel } from '../ui/auction.js';
 import { createTrades } from '../ui/trades.js';
 import { statsBlock } from '../ui/stats.js';
-import { createSidebar, netWorth } from '../ui/sidebar.js';
+import { createProperties } from '../ui/properties.js';
+import { icon } from '../ui/icons.js';
 import { confirmDialog, openDialog } from '../ui/modal.js';
 import { toast, showCardBanner } from '../ui/toast.js';
 
-const { JAIL_INDEX, BOARD_SIZE } = board;
+const { JAIL_INDEX, BOARD_SIZE, netWorth } = board;
 
 /** Turn actions shown as big buttons, in this order. Tile actions live in the popup and Cities tab. */
 const MAIN_ACTIONS = ['buy', 'roll', 'payJailFine', 'useJailCard', 'decline', 'endTurn'];
 const PRIMARY = new Set(['buy', 'roll', 'endTurn']);
+const ACTION_ICONS = { roll: 'dice', buy: 'buy', decline: 'skip', endTurn: 'end', payJailFine: 'coin', useJailCard: 'key' };
 /** Desktop keyboard shortcuts for the main turn actions. */
 const SHORTCUTS = { r: 'roll', b: 'buy', e: 'endTurn' };
 const KEY_FOR = Object.fromEntries(Object.entries(SHORTCUTS).map(([k, a]) => [a, k.toUpperCase()]));
@@ -36,17 +39,14 @@ const keyboardQuery = window.matchMedia('(hover: hover) and (pointer: fine) and 
  */
 const MAX_ANIMATION_LAG = 1;
 
-export function createGameScreen({ store, net, act, chat, log, sound, app }) {
+export function createGameScreen({ store, net, act, sound, app, panes }) {
   const popup = createTilePopup({ store, act, onProposeTrade: (id) => trades.proposeFor(id) });
   const grid = buildGrid($('#board'), { onSelect: (id) => popup.show(id) });
   const tokens = createTokens($('#token-layer'));
   const dice = createDice($('#dice'));
-  const sidebar = createSidebar({ store, net, act, onSelectTile: (id) => popup.show(id), chat });
-  const trades = createTrades({ store, act, sound, onOpenTab: (tab) => sidebar.selectTab(tab) });
-  createAuctionPanel({ store, act, hosts: [$('#center-auction'), $('#mobile-auction')] });
-  log.mount($('#center-log'));
-  log.mount($('#mobile-log'));
-  chat.mount($('#game-chat'), { label: 'Game chat message' });
+  createProperties({ store, act, onSelectTile: (id) => popup.show(id) });
+  const trades = createTrades({ store, act, sound, onOpenTab: (tab) => panes.select(tab) });
+  createAuctionPanel({ store, act, hosts: [$('#center-auction')] });
 
   // Per-game memory, declared before any subscription can read it.
   const bankruptOrder = [];
@@ -97,6 +97,37 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
   // Turn info, timer
   // ===========================================================================
 
+  // One-line status under the action buttons: whose turn it is and what's happening.
+  store.subscribe(
+    (d) => d.state && d.state.publicState && {
+      current: d.state.publicState.currentPlayerId,
+      phase: d.state.publicState.phase,
+      pending: d.state.publicState.turn.pendingTileId,
+      auctionTile: d.state.publicState.auction && d.state.publicState.auction.tileId,
+      me: d.you && d.you.playerId,
+      players: d.state.publicState.players.map((p) => ({ id: p.id, name: p.name, color: p.color, inJail: p.inJail, bankrupt: p.bankrupt, cash: p.cash })),
+    },
+    (v) => {
+      const host = $('#turn-info');
+      if (!v) return render(host);
+      if (v.phase === 'gameOver') return render(host, el('span', { text: 'Game over' }));
+      if (v.auctionTile) return render(host, el('span', { text: `Auction for ${tileName(v.auctionTile)}: bid or pass` }));
+      const who = v.players.find((p) => p.id === v.current);
+      const me = v.players.find((p) => p.id === v.me);
+      if (!who) return render(host);
+      const mine = who.id === v.me;
+      const doing = mine
+        ? { awaitingRoll: who.inJail ? 'roll for doubles, pay or use a card' : 'roll the dice', buyDecision: `buy ${tileName(v.pending)}?`, awaitingEnd: 'build, trade or end your turn' }[v.phase]
+        : { awaitingRoll: who.inJail ? 'is in jail' : 'is rolling', buyDecision: `is deciding on ${tileName(v.pending)}`, awaitingEnd: 'is finishing their turn' }[v.phase];
+      let text = mine ? `Your turn: ${doing || ''}` : `${who.name} ${doing || ''}`;
+      if (me && me.bankrupt) text = `You're spectating · ${who.name}'s turn`;
+      else if (me && me.cash < 0) text = 'Sell or mortgage to clear your debt';
+      return render(host,
+        el('span', { className: 'token-disc token-disc-sm', style: tokenStyle(who.color), attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'status-text', text }));
+    },
+  );
+
   let timerFrame = null;
   store.subscribe(
     (d) => d.state && { deadline: d.state.deadline, seconds: d.state.room.settings.turnTimerSeconds },
@@ -132,6 +163,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
     const publicState = store.state.publicState;
     const me = selectMe(store);
     const main = v.legal.filter((a) => MAIN_ACTIONS.includes(a.type)).sort((a, b) => MAIN_ACTIONS.indexOf(a.type) - MAIN_ACTIONS.indexOf(b.type));
+    // The one-line status under the buttons says whose turn it is; no extra text here.
     const nodes = main.map((a) => el('button', {
       className: `btn ${PRIMARY.has(a.type) ? 'btn-primary' : 'btn-secondary'} btn-action`,
       type: 'button',
@@ -139,16 +171,9 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
       dataset: { action: a.type },
       attrs: { 'aria-busy': v.busy ? 'true' : null, 'aria-keyshortcuts': KEY_FOR[a.type] || null },
       on: { click: () => act(a) },
-    }, actionLabel(a, { publicState, me }), KEY_FOR[a.type] ? el('kbd', { className: 'kbd-hint', text: KEY_FOR[a.type], attrs: { 'aria-hidden': 'true' } }) : null));
-    if (!main.length && v.status === 'playing') {
-      const current = publicState.players.find((p) => p.id === publicState.currentPlayerId);
-      if (me && me.bankrupt) nodes.push(el('p', { className: 'muted', text: 'You are spectating.' }));
-      else if (me && me.cash < 0) nodes.push(el('p', { className: 'muted', text: 'Raise cash to clear your debt.' }));
-      else if (current && current.id !== v.me) nodes.push(el('p', { className: 'waiting muted', text: `Waiting for ${current.name}…` }));
-    }
-    if (v.legal.some((a) => a.tileId)) {
-      nodes.push(el('p', { className: 'actions-hint muted', text: 'Tap a city, or open Cities, to build, sell or mortgage.' }));
-    }
+    }, ACTION_ICONS[a.type] ? icon(ACTION_ICONS[a.type], { size: 18 }) : null,
+    el('span', { className: 'btn-label', text: actionLabel(a, { publicState, me }) }),
+    KEY_FOR[a.type] ? el('kbd', { className: 'kbd-hint', text: KEY_FOR[a.type], attrs: { 'aria-hidden': 'true' } }) : null));
     return render(host, nodes);
   }
 
@@ -162,10 +187,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
       current: d.state.publicState.currentPlayerId,
       auction: Boolean(d.state.publicState.auction),
     },
-    (v) => {
-      renderActions($('#center-actions'), v);
-      renderActions($('#mobile-actions'), v);
-    },
+    (v) => renderActions($('#center-actions'), v),
   );
 
   // ===========================================================================
@@ -189,7 +211,7 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
         return render(host, el('div', { className: 'banner banner-danger', attrs: { role: 'alert' } },
           el('p', { className: 'banner-text', text: `You owe ${money(v.debt)} to ${to}. Sell or mortgage to continue.` }),
           el('div', { className: 'banner-actions' },
-            el('button', { className: 'btn btn-secondary btn-sm', type: 'button', text: 'My cities', on: { click: () => sidebar.selectTab('cities', { focus: true }) } }),
+            el('button', { className: 'btn btn-secondary btn-sm', type: 'button', text: 'My properties', on: { click: () => panes.select('properties', { focus: true }) } }),
             el('button', {
               className: 'btn btn-danger btn-sm', type: 'button', text: 'Declare bankruptcy', dataset: { action: 'bankrupt' },
               on: {
@@ -407,6 +429,5 @@ export function createGameScreen({ store, net, act, chat, log, sound, app }) {
       if (shownGameOver) shownGameOver.handle.close();
       shownGameOver = null;
     },
-    sidebar,
   };
 }

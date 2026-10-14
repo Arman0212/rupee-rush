@@ -8,6 +8,7 @@ export function createLog({ store }) {
   let entries = []; // newest first: { id, text, kind }
   let seq = 0;
   const views = new Set();
+  let latestListener = () => {};
 
   const entryNode = (entry) => el('li', { className: `log-entry log-${entry.kind}`, text: entry.text });
 
@@ -30,6 +31,7 @@ export function createLog({ store }) {
       fresh.push({ id: ++seq, text, kind });
     }
     if (!fresh.length) return;
+    latestListener(fresh[fresh.length - 1].text);
     fresh.reverse();
     entries = [...fresh, ...entries].slice(0, MAX_ENTRIES);
     for (const list of views) {
@@ -44,6 +46,9 @@ export function createLog({ store }) {
     clear() {
       entries = [];
       for (const list of views) clear(list);
+      latestListener('');
     },
+    /** fn(text) with the newest entry, for the collapsed log strip's one-line preview. */
+    onLatest(fn) { latestListener = fn; },
   };
 }

@@ -2,7 +2,7 @@
 // builder, and notifications. The server re-checks everything; the builder
 // just keeps obviously invalid choices out of reach and explains why.
 import { board, rules } from '../shared.js';
-import { el, render, $ } from '../dom.js';
+import { el, render, $, $$ } from '../dom.js';
 import { money, groupName, tileName, describeSide, offerValue, nameLookup, tokenStyle } from '../format.js';
 import { selectLegal, selectMe } from '../store.js';
 import { openDialog } from './modal.js';
@@ -17,7 +17,7 @@ const feeFor = (tileId) => Math.round(getTileById(tileId).mortgageValue * MORTGA
 
 export function createTrades({ store, act, sound, onOpenTab }) {
   const panel = $('#panel-trades');
-  const badge = $('#trade-badge');
+  const badges = $$('.trade-badge'); // tab bar and the desktop switch
 
   // ===========================================================================
   // Panel
@@ -72,8 +72,10 @@ export function createTrades({ store, act, sound, onOpenTab }) {
       const incoming = v.trades.filter((t) => t.toId === v.me);
       const outgoing = v.trades.filter((t) => t.fromId === v.me);
       const others = v.trades.filter((t) => t.toId !== v.me && t.fromId !== v.me);
-      badge.hidden = !incoming.length;
-      badge.textContent = incoming.length ? String(incoming.length) : '';
+      for (const badge of badges) {
+        badge.hidden = !incoming.length;
+        badge.textContent = incoming.length ? String(incoming.length) : '';
+      }
 
       const blocked = !me || me.bankrupt ? "You're out of the game."
         : me.cash < 0 ? 'Clear your debt before proposing a trade.'

@@ -97,12 +97,16 @@ class Game {
    * @param {object}   [opts]
    * @param {object}   [opts.settings] host settings, passed through sanitizeSettings
    * @param {object}   [opts.rng]      { next(): number in [0,1) }, ideally with getState/setState
-   * @param {number}   [opts.seed]     used to build a mulberry32 rng when `rng` is omitted
-   * @param {Function} [opts.now]      clock returning ms since epoch
+   * @param {number}   [opts.seed]         used to build a mulberry32 rng when `rng` is omitted
+   * @param {Function} [opts.now]          clock returning ms since epoch
+   * @param {Function} [opts.diceProvider] (playerId, reason, game) => [die1, die2]
+   * @param {Function} [opts.cardHook]     (deck, deckArray, player, game) => void
    */
-  constructor({ settings, rng, seed, now } = {}) {
+  constructor({ settings, rng, seed, now, diceProvider, cardHook } = {}) {
     this.now = typeof now === 'function' ? now : Date.now;
     this.rng = rng || createRng(seed ?? randomSeed());
+    this.diceProvider = typeof diceProvider === 'function' ? diceProvider : null;
+    this.cardHook = typeof cardHook === 'function' ? cardHook : null;
     const clean = rules.sanitizeSettings(isObject(settings) ? settings : {});
     this.state = Game.#initialState(clean, this.rng.seed ?? null, this.now());
   }
@@ -130,6 +134,7 @@ class Game {
       trades: [], // open trades only
       tradeSeq: 0,
       stats: Game.#freshStats(),
+      devLedger: { bankOut: 0, bankIn: 0 },
     };
   }
 
@@ -190,6 +195,48 @@ class Game {
     return this.#run(() => (this.state.auction ? null : 'no auction is running'), () => this.#finishAuction());
   }
 
+  /**
+   * Developer silent cash adjustment: adds or removes money without emitting
+   * player-visible events. Recorded in state.devLedger so simulator's money
+   * conservation check treats it as an explicit bank flow.
+   */
+  devAdjustCash(playerId, amount) {
+    const p = this.#player(playerId);
+    if (!p || !Number.isInteger(amount) || amount === 0) return false;
+    this.state.devLedger ??= { bankOut: 0, bankIn: 0 };
+    if (amount > 0) {
+      this.state.devLedger.bankOut += amount;
+      p.cash += amount;
+      let remaining = amount;
+      while (remaining > 0 && p.debt.owed.length) {
+        const entry = p.debt.owed[0];
+        const part = Math.min(remaining, entry.amount);
+        entry.amount -= part;
+        remaining -= part;
+        if (entry.amount === 0) p.debt.owed.shift();
+        if (entry.creditorId && entry.creditorId !== BANK) {
+          const cred = this.#player(entry.creditorId);
+          if (cred) cred.cash += part;
+        }
+      }
+      this.#syncDebt(p);
+    } else {
+      const deduct = Math.abs(amount);
+      const prevCash = p.cash;
+      p.cash -= deduct;
+      const actualDeductedFromPlay = Math.max(0, Math.min(deduct, prevCash));
+      this.state.devLedger.bankIn += actualDeductedFromPlay;
+      const shortfall = Math.max(0, -p.cash);
+      if (shortfall > 0) {
+        const last = p.debt.owed[p.debt.owed.length - 1];
+        if (last && last.creditorId === BANK) last.amount = shortfall;
+        else p.debt.owed.push({ creditorId: BANK, amount: shortfall });
+        this.#syncDebt(p);
+      }
+    }
+    return true;
+  }
+
   /** Full state for saving, including the hidden deck order and the rng state. */
   toJSON() {
     const rngState = typeof this.rng.getState === 'function' ? this.rng.getState() : null;
@@ -213,6 +260,7 @@ class Game {
     state.trades ??= [];
     state.tradeSeq ??= 0;
     state.stats ??= Game.#freshStats();
+    state.devLedger ??= { bankOut: 0, bankIn: 0 };
     game.state = state;
     return game;
   }
@@ -222,7 +270,7 @@ class Game {
    * seed / rng state, either of which would let a client predict dice and cards.
    */
   publicState() {
-    const { seed, decks, stats, ...visible } = cloneData(this.state);
+    const { seed, decks, stats, devLedger, ...visible } = cloneData(this.state);
     return {
       ...visible,
       // Stats only matter at the end, so they don't ride along on every broadcast.
@@ -437,7 +485,22 @@ class Game {
   // =========================================================================
 
   #rollDice(reason) {
-    const dice = [1 + randomInt(this.rng, DICE.sides), 1 + randomInt(this.rng, DICE.sides)];
+    let dice = null;
+    if (typeof this.diceProvider === 'function') {
+      try {
+        const custom = this.diceProvider(this.state.currentPlayerId, reason, this);
+        if (Array.isArray(custom) && custom.length === 2 &&
+            Number.isInteger(custom[0]) && custom[0] >= 1 && custom[0] <= DICE.sides &&
+            Number.isInteger(custom[1]) && custom[1] >= 1 && custom[1] <= DICE.sides) {
+          dice = [custom[0], custom[1]];
+        }
+      } catch (err) {
+        // Fall back to normal roll on error
+      }
+    }
+    if (!dice) {
+      dice = [1 + randomInt(this.rng, DICE.sides), 1 + randomInt(this.rng, DICE.sides)];
+    }
     const total = dice[0] + dice[1];
     const doubles = dice[0] === dice[1];
     this.#emit('diceRolled', { playerId: this.state.currentPlayerId, dice, total, doubles, reason });
@@ -772,6 +835,13 @@ class Game {
 
   /** Draw from the top; the card goes to the bottom unless the player keeps it. */
   #drawCard(p, deck) {
+    if (typeof this.cardHook === 'function') {
+      try {
+        this.cardHook(deck, this.state.decks[deck], p, this);
+      } catch (err) {
+        // Ignore hook error
+      }
+    }
     const cardId = this.state.decks[deck].shift();
     const card = getCard(deck, cardId);
     if (card.effect.kind === 'jailFree') p.jailFreeCards.push({ deck, cardId });

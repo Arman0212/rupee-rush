@@ -1,5 +1,6 @@
 // Short-lived notifications and non-blocking card banners in a polite live region.
 import { el, storage } from '../dom.js';
+import { setIcon } from './icons.js';
 
 const NOTIF_KEY = 'rr:notifications';
 const MAX_VISIBLE = 3;
@@ -28,14 +29,11 @@ export function initNotifications(toggleBtn) {
       important: 'Notifications: Important only',
       off: 'Notifications: Off',
     };
-    const icons = {
-      all: '🔔',
-      important: '🛎️',
-      off: '🔕',
-    };
+    const icons = { all: 'bell', important: 'bell', off: 'bellOff' };
     toggleBtn.setAttribute('aria-label', labels[notifMode] || labels.all);
     toggleBtn.title = `${labels[notifMode] || labels.all} (click to change)`;
-    toggleBtn.firstElementChild.textContent = icons[notifMode] || icons.all;
+    setIcon(toggleBtn, icons[notifMode] || icons.all);
+    toggleBtn.classList.toggle('is-quiet', notifMode === 'important');
   }
 
   toggleBtn.addEventListener('click', () => {

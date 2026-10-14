@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Dev Control</title>
+  <link rel="stylesheet" href="./dev.css">
+</head>
+<body>
+  <!-- Auth Modal -->
+  <div id="authModal" class="modal-backdrop hidden">
+    <div class="auth-card">
+      <div class="auth-title">Developer Access</div>
+      <p class="auth-subtitle">Enter DEV_KEY to access live game controls.</p>
+      <input type="password" id="keyInput" placeholder="Enter key (≥ 32 chars)" autocomplete="off">
+      <div id="authError" class="auth-error hidden"></div>
+      <button id="saveKeyBtn" class="btn btn-primary">Connect</button>
+    </div>
+  </div>
+
+  <!-- Main App Shell -->
+  <header class="top-header">
+    <div class="top-row">
+      <div class="brand">
+        <span class="status-dot offline" id="connStatus"></span>
+        <span class="brand-title">Dev Control</span>
+      </div>
+      <div class="header-actions">
+        <button id="refreshBtn" class="btn btn-sm">↻</button>
+        <button id="logoutBtn" class="btn btn-sm btn-ghost">Key</button>
+      </div>
+    </div>
+
+    <!-- Room Selector -->
+    <div class="room-selector-row">
+      <select id="roomSelect">
+        <option value="">Select a live room...</option>
+      </select>
+    </div>
+  </header>
+
+  <main id="mainContent" class="main-body">
+    <div id="noRoomNotice" class="placeholder-box">
+      Select a live room from the dropdown above to view and control the game.
+    </div>
+
+    <div id="roomView" class="hidden">
+      <!-- Room Summary Bar -->
+      <section class="card room-summary-card">
+        <div class="summary-line">
+          <div><span class="muted">Room:</span> <strong id="sumCode"></strong></div>
+          <div><span class="muted">Status:</span> <span id="sumStatus" class="badge"></span></div>
+          <div><span class="muted">Turn:</span> <strong id="sumTurn"></strong></div>
+        </div>
+        <div class="summary-line mt-1">
+          <div><span class="muted">Active:</span> <strong id="sumCurrentPlayer"></strong></div>
+          <div><span class="muted">Phase:</span> <span id="sumPhase" class="badge badge-subtle"></span></div>
+        </div>
+      </section>
+
+      <!-- Auction Banner (conditional) -->
+      <section id="auctionCard" class="card auction-card hidden">
+        <div class="section-title text-gold">⚡ Live Auction</div>
+        <div class="auction-details">
+          <div>Property: <strong id="aucTile"></strong></div>
+          <div>High Bid: <strong id="aucBid" class="text-emerald"></strong> by <span id="aucBidder"></span></div>
+          <div>Ends in: <strong id="aucTime"></strong></div>
+        </div>
+        <div class="btn-grid mt-2">
+          <button id="extendAuc10Btn" class="btn btn-sm btn-action">+10s</button>
+          <button id="extendAuc30Btn" class="btn btn-sm btn-action">+30s</button>
+          <button id="endAucBtn" class="btn btn-sm btn-danger">End Now</button>
+        </div>
+      </section>
+
+      <!-- Player Selector Tabs -->
+      <div class="player-tabs-wrapper">
+        <div id="playerTabs" class="player-tabs"></div>
+      </div>
+
+      <!-- Active Player Controls -->
+      <section id="playerControlsSection" class="card player-controls-card">
+        <div class="player-stats-header">
+          <div class="player-info-meta">
+            <span id="pName" class="p-name"></span>
+            <span id="pCash" class="p-cash"></span>
+          </div>
+          <div class="player-info-pos">
+            <span id="pPosition" class="p-position"></span>
+            <span id="pJail" class="badge badge-danger hidden">Jail</span>
+          </div>
+        </div>
+
+        <!-- Cash Actions -->
+        <div class="control-group">
+          <div class="control-label">Cash Adjustment (Silent)</div>
+          <div class="btn-grid-4">
+            <button class="btn btn-sm btn-outline cash-quick" data-amount="100">+₹100</button>
+            <button class="btn btn-sm btn-outline cash-quick" data-amount="500">+₹500</button>
+            <button class="btn btn-sm btn-outline cash-quick" data-amount="-100">-₹100</button>
+            <button class="btn btn-sm btn-outline cash-quick" data-amount="-500">-₹500</button>
+          </div>
+          <div class="custom-amount-row mt-1">
+            <input type="number" id="customCashInput" placeholder="Amount (e.g. 200 or -200)">
+            <button id="applyCashBtn" class="btn btn-sm btn-primary">Apply</button>
+          </div>
+        </div>
+
+        <!-- Dice Actions -->
+        <div class="control-group">
+          <div class="control-label">Next Dice Roll</div>
+          <div class="dice-inputs-row">
+            <div class="die-pick-wrapper">
+              <span>D1</span>
+              <select id="die1Select">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+              </select>
+            </div>
+            <div class="die-pick-wrapper">
+              <span>D2</span>
+              <select id="die2Select">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+              </select>
+            </div>
+            <button id="setRollBtn" class="btn btn-sm btn-primary">Set Roll</button>
+            <button id="queueRollBtn" class="btn btn-sm btn-outline">+Queue</button>
+          </div>
+
+          <div id="queuedRollsBox" class="queued-rolls mt-1 hidden">
+            <span class="muted text-xs">Queue:</span>
+            <span id="queueList"></span>
+          </div>
+        </div>
+
+        <!-- Policies -->
+        <div class="control-group">
+          <div class="control-label">Policies (Natural 2d6 Weighted)</div>
+          <div class="policy-toggles-grid">
+            <button class="btn btn-sm btn-toggle" id="polForceDoubles" data-pol="forceDoubles">Force Doubles</button>
+            <button class="btn btn-sm btn-toggle" id="polNoDoubles" data-pol="noDoubles">No Doubles</button>
+            <button class="btn btn-sm btn-toggle" id="polAvoidGoToJail" data-pol="avoidGoToJail">Avoid Go To Jail</button>
+            <button class="btn btn-sm btn-toggle" id="polAvoidTaxes" data-pol="avoidTaxes">Avoid Taxes</button>
+            <button class="btn btn-sm btn-toggle" id="polAvoidBuilt" data-pol="avoidBuilt">Avoid Opponent Built</button>
+          </div>
+
+          <div class="policy-select-row mt-1">
+            <label class="text-xs muted">Avoid tiles of:</label>
+            <select id="polAvoidPlayerSelect">
+              <option value="">Off (none)</option>
+            </select>
+          </div>
+
+          <div class="policy-select-row mt-1">
+            <label class="text-xs muted">Aim for tile:</label>
+            <select id="polAimTileSelect">
+              <option value="">Off (none)</option>
+            </select>
+          </div>
+
+          <div class="mt-2">
+            <button id="clearControlsBtn" class="btn btn-sm btn-danger w-full">Clear All Controls & Policies</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Deck Manipulation -->
+      <section class="card deck-card">
+        <div class="section-title">Deck Controls</div>
+        
+        <div class="deck-block">
+          <div class="deck-header">
+            <span class="badge badge-warning">Surprise</span>
+            <span class="muted text-xs">Top: <strong id="topSurpriseText">...</strong></span>
+          </div>
+          <div class="deck-picker-row mt-1">
+            <select id="surpriseSelect"></select>
+            <button id="setSurpriseBtn" class="btn btn-sm btn-primary">Set Next</button>
+          </div>
+        </div>
+
+        <div class="deck-block mt-2">
+          <div class="deck-header">
+            <span class="badge badge-info">Treasure</span>
+            <span class="muted text-xs">Top: <strong id="topTreasureText">...</strong></span>
+          </div>
+          <div class="deck-picker-row mt-1">
+            <select id="treasureSelect"></select>
+            <button id="setTreasureBtn" class="btn btn-sm btn-primary">Set Next</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live Board View (Compact) -->
+      <section class="card board-card">
+        <div class="section-title">Board Overview</div>
+        <div id="boardList" class="board-compact-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Global Action Toast (1-tap Applied Tick) -->
+  <div id="toast" class="toast hidden">✓ Applied</div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="./dev.js"></script>
+</body>
+</html>

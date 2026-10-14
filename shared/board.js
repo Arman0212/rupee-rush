@@ -204,15 +204,16 @@ function nearestAhead(from, type) {
 }
 
 /**
- * CSS grid placement (1-based) for an 11×11 board with GO in the bottom-right
- * corner, running left along the bottom, up the left side, right along the top
- * and down the right side.
+ * CSS grid placement (1-based) for an 11×11 board with GO in the top-left
+ * corner. Play runs left to right along the top, down the right side, right
+ * to left along the bottom and up the left side (Jail top-right, Vacation
+ * bottom-right, Go to Jail bottom-left).
  */
 function gridPosition(index) {
-  if (index <= 10) return { row: 11, col: 11 - index };
-  if (index <= 20) return { row: 11 - (index - 10), col: 1 };
-  if (index <= 30) return { row: 1, col: 1 + (index - 20) };
-  return { row: 1 + (index - 30), col: 11 };
+  if (index <= 10) return { row: 1, col: 1 + index };
+  if (index <= 20) return { row: 1 + (index - 10), col: 11 };
+  if (index <= 30) return { row: 11, col: 11 - (index - 20) };
+  return { row: 11 - (index - 30), col: 1 };
 }
 
 /**
@@ -231,13 +232,17 @@ function netWorth(player, properties) {
   return worth;
 }
 
-/** Which edge a tile sits on, useful for rotating labels in the UI. */
+/**
+ * Which edge a tile sits on. The UI uses it to put each tile's colour band on
+ * the edge facing the centre and to lay its content out for a tall (top and
+ * bottom rows) or wide (left and right columns) cell.
+ */
 function boardSide(index) {
   if (index % 10 === 0) return 'corner';
-  if (index < 10) return 'bottom';
-  if (index < 20) return 'left';
-  if (index < 30) return 'top';
-  return 'right';
+  if (index < 10) return 'top';
+  if (index < 20) return 'right';
+  if (index < 30) return 'bottom';
+  return 'left';
 }
 
 return {

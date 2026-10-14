@@ -74,6 +74,9 @@ const SCHEMAS = Object.freeze({
   pickColor: { color: str({ min: 1, max: 16 }) },
   updateSettings: { settings: flatObject({ maxKeys: 20 }) },
   kick: { playerId: str({ min: 1, max: 64 }) },
+  addBot: { difficulty: optional(str({ min: 1, max: 16 })) },
+  removeBot: { playerId: str({ min: 1, max: 64 }) },
+  replaceWithBot: { playerId: str({ min: 1, max: 64 }), difficulty: optional(str({ min: 1, max: 16 })) },
   startGame: {},
   playAgain: {},
   action: {

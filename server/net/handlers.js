@@ -107,6 +107,9 @@ function attachHandlers(io, manager, { log = console, now = Date.now } = {}) {
     on('pickColor', 'other', inRoom((room, { color }) => room.pickColor(socket.id, color)));
     on('updateSettings', 'other', inRoom((room, { settings }) => room.updateSettings(socket.id, settings)));
     on('kick', 'other', inRoom((room, { playerId }) => room.kick(socket.id, playerId)));
+    on('addBot', 'other', inRoom((room, { difficulty }) => room.addBot(socket.id, difficulty)));
+    on('removeBot', 'other', inRoom((room, { playerId }) => room.removeBot(socket.id, playerId)));
+    on('replaceWithBot', 'other', inRoom((room, { playerId, difficulty }) => room.replaceWithBot(socket.id, playerId, difficulty)));
     on('startGame', 'other', inRoom((room) => room.start(socket.id)));
     on('playAgain', 'other', inRoom((room) => room.playAgain(socket.id)));
     on('action', 'action', inRoom((room, action) => room.action(socket.id, action)));

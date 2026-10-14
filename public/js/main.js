@@ -8,9 +8,17 @@ import { confirmDialog } from './ui/modal.js';
 import { createChat } from './ui/chat.js';
 import { createLog } from './ui/log.js';
 import { openHelp } from './ui/help.js';
+import { createPanes, wideQuery } from './ui/panes.js';
+import { icon, setIcon } from './ui/icons.js';
 import { createHomeScreen, normalizeCode } from './screens/home.js';
 import { createLobbyScreen } from './screens/lobby.js';
 import { createGameScreen } from './screens/game.js';
+
+// The game's name and tagline come from shared/rules.js, everywhere.
+for (const node of $$('[data-game-name]')) node.textContent = rules.GAME_NAME;
+for (const node of $$('[data-game-tagline]')) node.textContent = rules.GAME_TAGLINE;
+setIcon($('#help-btn'), 'help');
+$('#leave-btn').prepend(icon('leave', { size: 16 }));
 
 const store = createStore();
 initToasts($('#toasts'));
@@ -26,7 +34,7 @@ function initTheme(toggleBtn) {
       const isDark = theme === 'dark';
       toggleBtn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
       toggleBtn.title = isDark ? 'Switch to light theme' : 'Switch to dark theme';
-      toggleBtn.firstElementChild.textContent = isDark ? '☀️' : '🌙';
+      setIcon(toggleBtn, isDark ? 'sun' : 'moon');
     }
   }
   if (toggleBtn) {
@@ -42,6 +50,10 @@ function initTheme(toggleBtn) {
 const net = createNet({ onStatus: statusPill($('#conn')), onRejoin: handleRejoin });
 const chat = createChat({ net, store });
 const log = createLog({ store });
+chat.mount($('#room-chat'), { label: 'Chat message' });
+log.mount($('#room-log'));
+log.onLatest((text) => { $('#log-latest').textContent = text; });
+const panes = createPanes({ chat });
 
 // ---------------------------------------------------------------------------
 // App actions shared by the screens
@@ -161,20 +173,38 @@ store.onEvents((events) => log.addEvents(events));
 // ---------------------------------------------------------------------------
 
 const home = createHomeScreen({ net, app });
-const lobby = createLobbyScreen({ store, net, chat });
-const game = createGameScreen({ store, net, act, chat, log, sound, app });
+const lobby = createLobbyScreen({ store, net });
+const game = createGameScreen({ store, net, act, sound, app, panes });
 const screens = { home, lobby, game };
 let current = null;
 
+/** Lobby and game share the room screen; only its mode changes. */
 function showScreen(name) {
   if (current === name) return;
   if (current) screens[current].hide();
   if (current === 'game' && name === 'lobby') game.reset(); // play again
-  for (const section of $$('.screen')) section.hidden = section.id !== `screen-${name}`;
+  $('#screen-home').hidden = name !== 'home';
+  $('#screen-room').hidden = name === 'home';
+  if (name !== 'home') panes.setMode(name);
   document.body.dataset.screen = name;
   current = name;
+  placeControls();
   if (name !== 'home') screens[name].show();
 }
+
+/**
+ * On wide room screens the top bar disappears and its controls (sound, help,
+ * notifications, theme, connection, leave) sit under the logo in the left
+ * pane. Moving the nodes keeps their listeners.
+ */
+function placeControls() {
+  const wide = wideQuery.matches && current && current !== 'home';
+  const target = wide ? $('#pane-controls') : $('.topbar');
+  const controls = $('#app-controls');
+  if (controls.parentElement !== target) target.append(controls);
+  document.body.classList.toggle('room-wide', Boolean(wide));
+}
+wideQuery.addEventListener('change', placeControls);
 
 store.subscribe(
   (d) => (!d.state ? 'home' : d.state.room.status === 'lobby' ? 'lobby' : 'game'),
@@ -195,11 +225,13 @@ store.subscribe(
 $('#leave-btn').addEventListener('click', () => app.leave());
 $('#help-btn').addEventListener('click', openHelp);
 $('#home-help').addEventListener('click', openHelp);
-$('.brand').addEventListener('click', (e) => {
-  if (!store.state) return;
-  e.preventDefault(); // don't silently drop a seat by navigating away
-  app.leave();
-});
+for (const brand of $$('.brand')) {
+  brand.addEventListener('click', (e) => {
+    if (!store.state) return;
+    e.preventDefault(); // don't silently drop a seat by navigating away
+    app.leave();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Boot: /r/CODE joins straight away when we know who you are

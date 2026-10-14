@@ -1,6 +1,7 @@
 // Player tokens: coloured discs with the player's initial, offset when they
-// share a tile, walking one tile at a time. Jailed tokens sit in the cell part
-// of the jail corner; visitors stand along its outer edge.
+// share a tile, walking one tile at a time (positions come from the board
+// layout, so they follow whatever direction play runs). Jailed tokens sit in
+// the cell part of the jail corner; visitors stand along its outer edges.
 import { board } from '../shared.js';
 import { el, sleep, prefersReducedMotion } from '../dom.js';
 import { initial, tokenStyle } from '../format.js';
@@ -29,12 +30,12 @@ function spot(position, inJail, slot, count) {
   if (position === JAIL_INDEX) {
     const c = rect.w;
     if (inJail) {
-      // The barred cell occupies the upper-right part of the corner.
-      const [dx, dy] = clusterOffsets(count, 'bottom')[slot];
-      return { x: rect.x + c * 0.69 + dx * U * 0.8, y: rect.y + c * 0.31 + dy * U * 0.8 };
+      // Jail is the top-right corner; its barred cell is the bottom-left part, facing the centre.
+      const [dx, dy] = clusterOffsets(count, 'top')[slot];
+      return { x: rect.x + c * 0.32 + dx * U * 0.8, y: rect.y + c * 0.68 + dy * U * 0.8 };
     }
-    // "Just visiting" runs along the left and bottom edges.
-    const path = [[0.17, 0.25], [0.17, 0.5], [0.17, 0.83], [0.42, 0.83], [0.67, 0.83], [0.9, 0.83], [0.17, 0.08], [0.9, 0.62]];
+    // "Just visiting" runs along the outer edges: the top (under its label) and the right.
+    const path = [[0.15, 0.27], [0.4, 0.27], [0.62, 0.27], [0.84, 0.27], [0.84, 0.5], [0.84, 0.72], [0.84, 0.92], [0.62, 0.07]];
     const [fx, fy] = path[slot % path.length];
     return { x: rect.x + c * fx, y: rect.y + c * fy };
   }

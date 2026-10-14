@@ -33,9 +33,10 @@ class RoomManager {
    * @param {object}   [opts.log]
    * @param {Function} [opts.makeCode] () => string, for tests
    * @param {Function} [opts.makeGame] passed through to every Room
+   * @param {object}   [opts.botDelay] passed through to every Room
    */
-  constructor({ transport, clock = REAL_CLOCK, log = console, makeCode = randomCode, makeGame, idleMs = IDLE_MS, maxAgeMs = MAX_AGE_MS }) {
-    Object.assign(this, { transport, clock, log, makeCode, makeGame, idleMs, maxAgeMs });
+  constructor({ transport, clock = REAL_CLOCK, log = console, makeCode = randomCode, makeGame, idleMs = IDLE_MS, maxAgeMs = MAX_AGE_MS, botDelay }) {
+    Object.assign(this, { transport, clock, log, makeCode, makeGame, idleMs, maxAgeMs, botDelay });
   }
 
   /** Create a room and seat its creator, who becomes host. */
@@ -48,16 +49,26 @@ class RoomManager {
       clock: this.clock,
       log: this.log,
       makeGame: this.makeGame,
+      ...(this.botDelay ? { botDelay: this.botDelay } : {}),
       onEmpty: (r) => this.deleteRoom(r.code, 'empty'),
     });
+    room.onDevUpdate = () => this.onDevUpdate?.(code);
     this.#rooms.set(code, room);
     const result = room.join({ socketId, name });
-    if (!result.ok) this.deleteRoom(code, 'failed');
+    if (!result.ok) {
+      this.deleteRoom(code, 'failed');
+    } else {
+      this.onRoomChange?.();
+    }
     return result;
   }
 
   get(code) {
     return this.#rooms.get(code) || null;
+  }
+
+  allRooms() {
+    return [...this.#rooms.values()];
   }
 
   /** Public lobbies only: not private, not started. */
@@ -76,6 +87,7 @@ class RoomManager {
     if (!room) return;
     this.#rooms.delete(code);
     room.dispose(reason);
+    this.onRoomChange?.();
   }
 
   /** Delete rooms nobody has been connected to for idleMs, and any room older than maxAgeMs. */

@@ -18,14 +18,26 @@
  *
  * The engine stays authoritative: the room only decides who may call
  * game.dispatch, and when the turn timer plays on a player's behalf.
+ *
+ * Bots are seats with no socket that always count as connected. After every
+ * change the room arms one bot timer (a human-like 0.6-1.5s, shorter in
+ * auctions); any newer change cancels and re-arms it. When it fires, the first
+ * bot that wants to act (bidders, then debtors and trade recipients, then the
+ * player whose turn it is) decides on the current public state. Bots are
+ * never timed out and never kicked for being away. With no human connected
+ * they wait, so an abandoned room doesn't play on by itself.
  */
 
 const crypto = require('node:crypto');
 const { Game, PHASE } = require('../game/Game');
 const { ROOM, PLAYER_COLORS, sanitizeSettings } = require('../../shared/rules');
-const { getTileById } = require('../../shared/board');
+const { BOARD, TILE, getTileById } = require('../../shared/board');
+const { DECKS, getCard } = require('../../shared/cards');
 const { RateLimiter } = require('../net/rateLimit');
 const { cleanName, cleanText } = require('../net/validate');
+const { Bot, DIFFICULTIES } = require('../bots/Bot');
+const { fullSets } = require('../bots/valuation');
+const { pickBotName, pickLine } = require('../bots/persona');
 
 const STATUS = Object.freeze({ LOBBY: 'lobby', PLAYING: 'playing', FINISHED: 'finished' });
 
@@ -40,6 +52,8 @@ const MAX_AUTOPLAY_STEPS = 300;
 /** After an auction, a paused turn timer resumes with at least this much time left. */
 const RESUME_MIN_MS = 5000;
 const ACTIVE_PHASES = new Set([PHASE.AWAITING_ROLL, PHASE.BUY_DECISION, PHASE.AWAITING_END]);
+/** How long a bot "thinks" before acting, in ms: [min, max] normally and during auctions. */
+const BOT_DELAY = Object.freeze({ normal: [600, 1500], auction: [300, 700] });
 
 const REAL_CLOCK = Object.freeze({
   now: () => Date.now(),
@@ -53,13 +67,15 @@ const newToken = () => crypto.randomBytes(24).toString('base64url');
 const newPlayerId = () => crypto.randomBytes(8).toString('hex');
 
 class Room {
-  /** Seats in join order: id -> { id, name, color, token, socketId, connected, disconnectedAt }. */
+  /** Seats in join order: id -> { id, name, color, token, socketId, connected, disconnectedAt, bot }. bot is a Bot or null. */
   #seats = new Map();
   #awayTimers = new Map(); // seat id -> timer handle
   #turnTimer = null; // { key, mode, deadline, handle }
   #pausedTurn = null; // { key, mode, remaining } while an auction runs
   #resumeAutoplay = null; // turn key whose timed-out auto-play an auction interrupted
   #auctionTimer = null; // { auction, endsAt, handle }
+  #botTimer = null; // handle of the pending bot move
+  #botSets = new Map(); // bot seat id -> colour sets it owned at the last change, for chat lines
   #chatLimiter;
 
   /**
@@ -70,14 +86,20 @@ class Room {
    * @param {object}   [opts.log]      console-like
    * @param {Function} [opts.onEmpty]  called once the last seat is gone
    * @param {Function} [opts.makeGame] (settings, now) => Game, so tests can seed or rig it
+   * @param {Function} [opts.random]   () => [0, 1) for bot delays, names and chat lines
+   * @param {Function} [opts.makeBot]  ({ id, difficulty }) => Bot, so tests can seed bots
+   * @param {object}   [opts.botDelay] { normal: [min, max], auction: [min, max] } in ms
    */
-  constructor({ code, transport, clock = REAL_CLOCK, log = console, onEmpty = () => {}, makeGame }) {
+  constructor({ code, transport, clock = REAL_CLOCK, log = console, onEmpty = () => {}, makeGame, random = Math.random, makeBot, botDelay = BOT_DELAY }) {
     this.code = code;
     this.transport = transport;
     this.clock = clock;
     this.log = log;
     this.onEmpty = onEmpty;
     this.makeGame = makeGame || ((settings, now) => new Game({ settings, now }));
+    this.random = random;
+    this.botDelay = botDelay;
+    this.makeBot = makeBot || (({ id, difficulty }) => new Bot({ id, difficulty, log }));
     this.settings = sanitizeSettings({});
     this.status = STATUS.LOBBY;
     this.hostId = null;
@@ -89,6 +111,11 @@ class Room {
     this.emptySince = null; // when the last socket left, for idle cleanup
     this.closed = false;
     this.#chatLimiter = new RateLimiter({ ...CHAT_RATE, now: clock.now });
+    this.devState = {
+      queuedRolls: new Map(),
+      policies: new Map(),
+      nextCards: { surprise: null, treasure: null },
+    };
   }
 
   // =========================================================================
@@ -114,6 +141,7 @@ class Room {
       socketId,
       connected: true,
       disconnectedAt: null,
+      bot: null,
     };
     this.#seats.set(newSeat.id, newSeat);
     if (!this.hostId) this.hostId = newSeat.id;
@@ -182,8 +210,16 @@ class Room {
     // Never drop the limit below the players already seated.
     next.maxPlayers = Math.max(next.maxPlayers, this.#seats.size);
     this.settings = next;
-    this.#broadcast([this.#roomEvent('settingsChanged', { settings: next })]);
-    return ok({ settings: next });
+    const events = [this.#roomEvent('settingsChanged', { settings: next })];
+    // Turning bots off sends the lobby's bots home.
+    if (!next.allowBots) {
+      for (const seat of this.#botSeats()) {
+        this.#removeSeat(seat, 'removed');
+        events.push(this.#roomEvent('seatLeft', { playerId: seat.id, reason: 'removed' }));
+      }
+    }
+    this.#broadcast(events);
+    return ok({ settings: this.settings });
   }
 
   /** Host only. In the lobby anyone can be kicked; mid-game only players gone for AWAY_GRACE_MS. */
@@ -205,12 +241,79 @@ class Room {
     return ok();
   }
 
+  // =========================================================================
+  // Bots
+  // =========================================================================
+
+  /** Host only, in the lobby: seat a computer player in the next free colour. */
+  addBot(socketId, difficulty = 'medium') {
+    const error = this.#requireHost(socketId, STATUS.LOBBY);
+    if (error) return fail(error);
+    if (!this.settings.allowBots) return fail('bots are turned off for this room');
+    if (!DIFFICULTIES.includes(difficulty)) return fail('unknown difficulty');
+    if (this.#seats.size >= this.settings.maxPlayers) return fail('room is full');
+    const taken = new Set([...this.#seats.values()].map((s) => s.name.toLowerCase()));
+    const id = newPlayerId();
+    const seat = {
+      id,
+      name: this.#uniqueName(pickBotName(taken, this.random)),
+      color: this.#freeColor(),
+      token: newToken(), // never sent anywhere; no socket can claim a bot's seat
+      socketId: null,
+      connected: true,
+      disconnectedAt: null,
+      bot: this.makeBot({ id, difficulty }),
+    };
+    this.#seats.set(id, seat);
+    this.#broadcast([this.#roomEvent('seatJoined', { playerId: id, name: seat.name, bot: difficulty })]);
+    return ok({ playerId: id });
+  }
+
+  /** Host only, in the lobby. */
+  removeBot(socketId, playerId) {
+    const error = this.#requireHost(socketId, STATUS.LOBBY);
+    if (error) return fail(error);
+    const seat = this.#seats.get(playerId);
+    if (!seat || !seat.bot) return fail('no such bot');
+    this.#removeSeat(seat, 'removed');
+    this.#broadcast([this.#roomEvent('seatLeft', { playerId, reason: 'removed' })]);
+    return ok();
+  }
+
+  /**
+   * Host only, mid-game: a bot takes over the seat (cash, cities, position) of
+   * a player who has disconnected. Their token stops working, so they can't
+   * come back to that seat.
+   */
+  replaceWithBot(socketId, playerId, difficulty = 'medium') {
+    const error = this.#requireHost(socketId, STATUS.PLAYING);
+    if (error) return fail(error);
+    if (!this.settings.allowBots) return fail('bots are turned off for this room');
+    if (!DIFFICULTIES.includes(difficulty)) return fail('unknown difficulty');
+    const seat = this.#seats.get(playerId);
+    if (!seat) return fail('no such player');
+    if (seat.bot) return fail('that player is already a bot');
+    if (seat.connected) return fail('only a player who has left can be replaced');
+    const player = this.game.state.players.find((p) => p.id === playerId);
+    if (!player || player.bankrupt) return fail('that player is out of the game');
+    this.#clearAwayTimer(seat.id);
+    seat.bot = this.makeBot({ id: seat.id, difficulty });
+    seat.token = newToken();
+    seat.connected = true;
+    seat.disconnectedAt = null;
+    this.#afterChange([this.#roomEvent('seatReplacedByBot', { playerId, difficulty })]);
+    return ok();
+  }
+
   start(socketId) {
     const error = this.#requireHost(socketId, STATUS.LOBBY);
     if (error) return fail(error);
     if (this.#seats.size < 2) return fail('need at least 2 players');
 
     const game = this.makeGame(this.settings, this.clock.now);
+    this.#attachDevHooks(game);
+    // Each game starts with fresh bot memories (when they last traded and so on).
+    for (const seat of this.#botSeats()) seat.bot = this.makeBot({ id: seat.id, difficulty: seat.bot.difficulty });
     for (const seat of this.#seats.values()) {
       const added = game.addPlayer({ id: seat.id, name: seat.name, color: seat.color });
       if (!added.ok) return fail(`could not seat ${seat.name}: ${added.error}`);
@@ -231,6 +334,8 @@ class Room {
     this.status = STATUS.LOBBY;
     this.#clearTurnTimer();
     this.#clearAuctionTimer();
+    this.#clearBotTimer();
+    this.#botSets.clear();
     // Seats that went quiet long ago would have been dropped by a lobby; do it now.
     const now = this.clock.now();
     for (const seat of [...this.#seats.values()]) {
@@ -267,7 +372,95 @@ class Room {
       const winner = this.game.state.players.find((p) => p.id === this.game.state.winnerId);
       this.transport.toRoom(this.code, 'gameOver', { winnerId: winner ? winner.id : null, name: winner ? winner.name : null });
     }
-    if (this.#seats.size === 0) this.onEmpty(this);
+    if (this.status !== STATUS.LOBBY) this.#botChatter(all);
+    if (this.#humanSeats().length === 0) {
+      this.#clearBotTimer();
+      if (!this.closed) this.onEmpty(this);
+      return;
+    }
+    this.#scheduleBots();
+  }
+
+  // =========================================================================
+  // Bot moves
+  // =========================================================================
+
+  /** Re-arm the single bot timer: any change cancels the move a bot was about to make. */
+  #scheduleBots() {
+    this.#clearBotTimer();
+    if (this.closed || this.status !== STATUS.PLAYING || !this.#botSeats().length) return;
+    if (this.connectedCount === 0) return; // nobody watching: wait for a human to come back
+    const [lo, hi] = this.game.state.phase === PHASE.AUCTION ? this.botDelay.auction : this.botDelay.normal;
+    const ms = Math.round(lo + this.random() * (hi - lo));
+    this.#botTimer = this.clock.setTimeout(() => this.#runBots(), ms);
+  }
+
+  #clearBotTimer() {
+    if (this.#botTimer) this.clock.clearTimeout(this.#botTimer);
+    this.#botTimer = null;
+  }
+
+  /**
+   * Bots that may want to act, most urgent first: auction bidders, then
+   * anyone off-turn (debts, trade replies), then the player whose turn it is.
+   */
+  #botQueue() {
+    const { currentPlayerId } = this.game.state;
+    const bots = this.#botSeats().filter((s) => {
+      const p = this.game.state.players.find((x) => x.id === s.id);
+      return p && !p.bankrupt;
+    });
+    return [...bots.filter((s) => s.id !== currentPlayerId), ...bots.filter((s) => s.id === currentPlayerId)];
+  }
+
+  /** The bot timer fired: let the first bot that wants to act make one move. */
+  #runBots() {
+    this.#botTimer = null;
+    if (this.closed || this.status !== STATUS.PLAYING) return;
+    const state = this.game.publicState();
+    const humans = new Set(this.#humanSeats().map((s) => s.id));
+    for (const seat of this.#botQueue()) {
+      const legalActions = this.game.getLegalActions(seat.id);
+      if (!legalActions.length) continue;
+      // The game waits on the current player (outside auctions), so it must always do something.
+      const mustAct = state.currentPlayerId === seat.id && state.phase !== PHASE.AUCTION;
+      const action = seat.bot.act({ state, legalActions, humans, mustAct });
+      if (!action) continue;
+      let result = this.game.dispatch(seat.id, action);
+      if (!result.ok) {
+        this.log.warn(`[room ${this.code}] bot ${seat.name}: ${action.type} rejected: ${result.error}`);
+        const fallback = mustAct ? this.#autoAction(seat.id) : null;
+        if (!fallback) continue;
+        result = this.game.dispatch(seat.id, fallback);
+        if (!result.ok) continue;
+      }
+      this.#afterChange(result.events);
+      return;
+    }
+  }
+
+  /** A short line from a bot when it completes a set, goes bankrupt or wins (if the room allows it). */
+  #botChatter(events) {
+    if (!this.game) return;
+    const state = this.game.state;
+    for (const seat of this.#botSeats()) {
+      const sets = fullSets(state, seat.id);
+      const before = this.#botSets.get(seat.id) || [];
+      this.#botSets.set(seat.id, sets);
+      if (!this.settings.botChat) continue;
+      let kind = null;
+      if (events.some((e) => e.type === 'gameOver' && e.winnerId === seat.id)) kind = 'won';
+      else if (events.some((e) => e.type === 'bankrupt' && e.playerId === seat.id)) kind = 'bankrupt';
+      else if (sets.some((g) => !before.includes(g))) kind = 'completedSet';
+      if (kind) this.#say(seat, pickLine(kind, this.random));
+    }
+  }
+
+  #say(seat, text) {
+    const message = { id: ++this.chatSeq, playerId: seat.id, name: seat.name, text, ts: this.clock.now(), bot: true };
+    this.chatLog.push(message);
+    if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
+    this.transport.toRoom(this.code, 'chat', message);
   }
 
   // =========================================================================
@@ -310,9 +503,10 @@ class Room {
     if (this.status !== STATUS.PLAYING || !ACTIVE_PHASES.has(this.game.state.phase)) return null;
     const { currentPlayerId, turnNumber } = this.game.state;
     const key = `${turnNumber}:${currentPlayerId}`;
+    const seat = this.#seats.get(currentPlayerId);
+    if (seat && seat.bot) return null; // bots move on their own and are never timed out
     const seconds = this.settings.turnTimerSeconds;
     if (seconds > 0) return { key, mode: 'turn', ms: seconds * 1000 };
-    const seat = this.#seats.get(currentPlayerId);
     if (!seat || !seat.connected) return { key, mode: 'away', ms: AWAY_GRACE_MS };
     return null;
   }
@@ -477,6 +671,7 @@ class Room {
         connected: s.connected,
         disconnectedAt: s.disconnectedAt,
         isHost: s.id === this.hostId,
+        bot: s.bot ? s.bot.difficulty : null,
       })),
     };
   }
@@ -495,8 +690,9 @@ class Room {
     return this.#seats.size;
   }
 
+  /** Connected humans (bots don't count: a room of only bots is empty). */
   get connectedCount() {
-    return [...this.#seats.values()].filter((s) => s.connected).length;
+    return this.#humanSeats().filter((s) => s.connected).length;
   }
 
   get turnDeadline() {
@@ -521,6 +717,7 @@ class Room {
       if (seat.socketId) this.transport.toSocket(seat.socketId, 'you', this.#privateView(seat));
     }
     this.emptySince = this.connectedCount === 0 ? (this.emptySince ?? this.clock.now()) : null;
+    this.onDevUpdate?.();
   }
 
   #privateView(seat) {
@@ -540,6 +737,14 @@ class Room {
   // =========================================================================
   // Seats, names, colours, host
   // =========================================================================
+
+  #humanSeats() {
+    return [...this.#seats.values()].filter((s) => !s.bot);
+  }
+
+  #botSeats() {
+    return [...this.#seats.values()].filter((s) => s.bot);
+  }
 
   #seatBySocket(socketId) {
     if (!socketId) return null;
@@ -586,9 +791,9 @@ class Room {
     if (this.hostId === seat.id) this.#transferHost(seat.id);
   }
 
-  /** The next seat in join order becomes host, preferring someone who is connected. */
+  /** The next human seat in join order becomes host, preferring someone who is connected. Bots never host. */
   #transferHost(fromId) {
-    const others = [...this.#seats.values()].filter((s) => s.id !== fromId);
+    const others = this.#humanSeats().filter((s) => s.id !== fromId);
     const next = others.find((s) => s.connected) || others[0] || null;
     this.hostId = next ? next.id : null;
   }
@@ -632,11 +837,310 @@ class Room {
   // Teardown
   // =========================================================================
 
+  // =========================================================================
+  // Developer Control Panel Hooks & Methods
+  // =========================================================================
+
+  #attachDevHooks(game) {
+    if (!game) return;
+    game.diceProvider = (playerId, reason, g) => this.#devDiceProvider(playerId, reason, g);
+    game.cardHook = (deck, deckArray, p, g) => this.#devCardHook(deck, deckArray, p, g);
+  }
+
+  #devCardHook(deck, deckArray, p, g) {
+    const nextCardId = this.devState.nextCards[deck];
+    if (nextCardId) {
+      const idx = deckArray.indexOf(nextCardId);
+      if (idx > -1) {
+        deckArray.splice(idx, 1);
+        deckArray.unshift(nextCardId);
+      }
+      this.devState.nextCards[deck] = null;
+    }
+  }
+
+  #devDiceProvider(playerId, reason, game) {
+    // 1. Check queued rolls
+    const queue = this.devState.queuedRolls.get(playerId);
+    if (queue && queue.length > 0) {
+      const roll = queue.shift();
+      if (Array.isArray(roll) && roll.length === 2 &&
+          Number.isInteger(roll[0]) && roll[0] >= 1 && roll[0] <= 6 &&
+          Number.isInteger(roll[1]) && roll[1] >= 1 && roll[1] <= 6) {
+        this.onDevUpdate?.();
+        return roll;
+      }
+    }
+
+    // 2. Check active policies
+    const policies = this.devState.policies.get(playerId);
+    if (policies && Object.keys(policies).length > 0) {
+      const p = game.state.players.find((x) => x.id === playerId);
+      if (p) {
+        const valid = this.#findValidDiceCombinations(p, policies, reason, game);
+        if (valid.length > 0) {
+          // Weighted by normal 2d6 odds: choosing uniformly among valid (d1, d2) pairs
+          // preserves the natural 2d6 triangular distribution.
+          const idx = Math.floor(this.random() * valid.length);
+          return valid[idx];
+        }
+      }
+    }
+
+    return null;
+  }
+
+  #findValidDiceCombinations(p, policies, reason, game) {
+    const valid = [];
+    for (let d1 = 1; d1 <= 6; d1++) {
+      for (let d2 = 1; d2 <= 6; d2++) {
+        const isDouble = d1 === d2;
+
+        if (policies.noDoubles && isDouble) continue;
+        if (policies.forceDoubles && !isDouble) continue;
+
+        if (reason === 'move') {
+          let destIndex;
+          if (p.inJail) {
+            if (isDouble || p.jailTurns + 1 >= 3) {
+              destIndex = (10 + d1 + d2) % 40;
+            } else {
+              destIndex = 10;
+            }
+          } else {
+            if (isDouble && p.doublesCount === 2) {
+              destIndex = 10; // Triple doubles send to jail
+            } else {
+              destIndex = (p.position + d1 + d2) % 40;
+            }
+          }
+
+          if (policies.avoidGoToJail) {
+            if (!p.inJail && isDouble && p.doublesCount === 2) continue;
+            if (destIndex === 30) continue;
+          }
+
+          const destTile = BOARD[destIndex];
+
+          if (policies.avoidTaxes && destTile.type === TILE.TAX) continue;
+
+          if (policies.aimTile !== undefined && policies.aimTile !== null && policies.aimTile !== '') {
+            const target = String(policies.aimTile);
+            if (destTile.id !== target && String(destIndex) !== target) continue;
+          }
+
+          if (policies.avoidPlayer) {
+            const prop = game.state.properties[destTile.id];
+            if (prop && prop.ownerId === policies.avoidPlayer) continue;
+          }
+
+          if (policies.avoidBuilt) {
+            const prop = game.state.properties[destTile.id];
+            if (prop && prop.ownerId && prop.ownerId !== p.id && prop.buildings > 0) continue;
+          }
+        }
+
+        valid.push([d1, d2]);
+      }
+    }
+    return valid;
+  }
+
+  devSetRoll(playerId, dice) {
+    if (!Array.isArray(dice) || dice.length !== 2 ||
+        !Number.isInteger(dice[0]) || dice[0] < 1 || dice[0] > 6 ||
+        !Number.isInteger(dice[1]) || dice[1] < 1 || dice[1] > 6) {
+      return false;
+    }
+    this.devState.queuedRolls.set(playerId, [[dice[0], dice[1]]]);
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devQueueRolls(playerId, rolls) {
+    if (!Array.isArray(rolls)) return false;
+    const valid = [];
+    for (const r of rolls) {
+      if (Array.isArray(r) && r.length === 2 &&
+          Number.isInteger(r[0]) && r[0] >= 1 && r[0] <= 6 &&
+          Number.isInteger(r[1]) && r[1] >= 1 && r[1] <= 6) {
+        valid.push([r[0], r[1]]);
+      }
+    }
+    this.devState.queuedRolls.set(playerId, valid);
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devSetPolicy(playerId, policy, value) {
+    let pMap = this.devState.policies.get(playerId);
+    if (!pMap) {
+      pMap = {};
+      this.devState.policies.set(playerId, pMap);
+    }
+    if (value === null || value === undefined || value === false || value === '') {
+      delete pMap[policy];
+    } else {
+      pMap[policy] = value;
+    }
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devClearControls(playerId) {
+    if (playerId && playerId !== 'all') {
+      this.devState.queuedRolls.delete(playerId);
+      this.devState.policies.delete(playerId);
+    } else {
+      this.devState.queuedRolls.clear();
+      this.devState.policies.clear();
+    }
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devSetNextCard(deck, cardId) {
+    if (!['surprise', 'treasure'].includes(deck)) return false;
+    this.devState.nextCards[deck] = cardId;
+    if (this.game?.state?.decks?.[deck]) {
+      const d = this.game.state.decks[deck];
+      const idx = d.indexOf(cardId);
+      if (idx > -1) {
+        d.splice(idx, 1);
+        d.unshift(cardId);
+      }
+    }
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devAdjustCash(playerId, amount) {
+    if (!this.game) return false;
+    const ok = this.game.devAdjustCash(playerId, amount);
+    if (ok) this.onDevUpdate?.();
+    return ok;
+  }
+
+  devExtendAuction(seconds = 10) {
+    if (this.closed || this.status !== STATUS.PLAYING || !this.game?.state?.auction) return false;
+    const addMs = Math.max(1, Number(seconds) || 10) * 1000;
+    const currentRemaining = this.#auctionTimer ? Math.max(0, this.#auctionTimer.endsAt - this.clock.now()) : 0;
+    const newRemaining = currentRemaining + addMs;
+    this.#clearAuctionTimer();
+    const auction = this.game.state.auction;
+    const handle = this.clock.setTimeout(() => this.#onAuctionTimeout(), newRemaining);
+    this.#auctionTimer = { auction, endsAt: this.clock.now() + newRemaining, handle };
+    this.#broadcast();
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devEndAuction() {
+    if (this.closed || this.status !== STATUS.PLAYING || !this.game?.state?.auction) return false;
+    this.#clearAuctionTimer();
+    const result = this.game.closeAuction();
+    if (result.ok) this.#afterChange(result.events);
+    this.onDevUpdate?.();
+    return true;
+  }
+
+  devSummary() {
+    return {
+      code: this.code,
+      status: this.status,
+      turnNumber: this.game ? this.game.state.turnNumber : 0,
+      createdAt: this.createdAt,
+      seatCount: this.seatCount,
+      players: [...this.#seats.values()].map((s) => ({
+        id: s.id,
+        name: s.name,
+        color: s.color,
+        connected: s.connected,
+        isBot: Boolean(s.bot),
+      })),
+    };
+  }
+
+  getDevState() {
+    const isPlaying = this.status === STATUS.PLAYING && Boolean(this.game);
+    const gState = isPlaying ? this.game.state : null;
+    return {
+      code: this.code,
+      status: this.status,
+      version: this.version,
+      turnNumber: gState ? gState.turnNumber : 0,
+      currentPlayerId: gState ? gState.currentPlayerId : null,
+      phase: gState ? gState.phase : null,
+      players: [...this.#seats.values()].map((s) => {
+        const p = gState ? gState.players.find((x) => x.id === s.id) : null;
+        return {
+          id: s.id,
+          name: s.name,
+          color: s.color,
+          connected: s.connected,
+          isBot: Boolean(s.bot),
+          cash: p ? p.cash : 0,
+          position: p ? p.position : 0,
+          inJail: p ? p.inJail : false,
+          jailTurns: p ? p.jailTurns : 0,
+          bankrupt: p ? p.bankrupt : false,
+          doublesCount: p ? p.doublesCount : 0,
+          debt: p ? p.debt : { total: 0, owed: [] },
+          properties: p
+            ? Object.entries(gState.properties)
+                .filter(([_, prop]) => prop.ownerId === s.id)
+                .map(([tileId, prop]) => ({
+                  tileId,
+                  buildings: prop.buildings,
+                  mortgaged: prop.mortgaged,
+                }))
+            : [],
+          queuedRolls: this.devState.queuedRolls.get(s.id) || [],
+          policies: this.devState.policies.get(s.id) || {},
+        };
+      }),
+      board: BOARD.map((tile) => {
+        const prop = gState ? gState.properties[tile.id] : null;
+        return {
+          index: tile.index,
+          id: tile.id,
+          name: tile.name,
+          type: tile.type,
+          group: tile.group || null,
+          price: tile.price || 0,
+          ownerId: prop ? prop.ownerId : null,
+          buildings: prop ? prop.buildings : 0,
+          mortgaged: prop ? prop.mortgaged : false,
+        };
+      }),
+      cards: isPlaying && gState.decks ? {
+        surprise: (gState.decks.surprise || []).slice(0, 5).map((id) => {
+          const c = getCard('surprise', id);
+          return { id, text: c ? c.text : id, kind: c?.effect?.kind };
+        }),
+        treasure: (gState.decks.treasure || []).slice(0, 5).map((id) => {
+          const c = getCard('treasure', id);
+          return { id, text: c ? c.text : id, kind: c?.effect?.kind };
+        }),
+        allSurprise: Object.values(DECKS.surprise).map((c) => ({ id: c.id, text: c.text, kind: c.effect.kind })),
+        allTreasure: Object.values(DECKS.treasure).map((c) => ({ id: c.id, text: c.text, kind: c.effect.kind })),
+      } : null,
+      auction: isPlaying && gState.auction ? {
+        tileId: gState.auction.tileId,
+        highBid: gState.auction.highBid,
+        highBidderId: gState.auction.highBidderId,
+        bidders: gState.auction.bidders,
+        endsAt: this.#auctionTimer ? this.#auctionTimer.endsAt : null,
+      } : null,
+    };
+  }
+
   /** Clear every timer and send every socket away. The room is unusable afterwards. */
   dispose(reason = 'closed') {
     if (this.closed) return;
     this.#clearTurnTimer();
     this.#clearAuctionTimer();
+    this.#clearBotTimer();
     for (const id of [...this.#awayTimers.keys()]) this.#clearAwayTimer(id);
     for (const seat of this.#seats.values()) {
       if (seat.socketId) this.transport.detach(this.code, seat.socketId, 'roomClosed', { code: this.code, reason });
@@ -645,4 +1149,4 @@ class Room {
   }
 }
 
-module.exports = { Room, STATUS, AWAY_GRACE_MS, REAL_CLOCK };
+module.exports = { Room, STATUS, AWAY_GRACE_MS, REAL_CLOCK, BOT_DELAY };
