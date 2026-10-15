@@ -77,6 +77,8 @@ const SCHEMAS = Object.freeze({
   addBot: { difficulty: optional(str({ min: 1, max: 16 })) },
   removeBot: { playerId: str({ min: 1, max: 64 }) },
   replaceWithBot: { playerId: str({ min: 1, max: 64 }), difficulty: optional(str({ min: 1, max: 16 })) },
+  setTeam: { playerId: str({ min: 1, max: 64 }), team: optional(str({ min: 1, max: 1 })) },
+  shuffleTeams: {},
   startGame: {},
   playAgain: {},
   action: {

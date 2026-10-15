@@ -57,6 +57,8 @@ export function createTokens(layer) {
     token.node.textContent = initial(player.name);
     for (const [prop, value] of Object.entries(tokenStyle(player.color))) token.node.style.setProperty(prop, value);
     token.node.title = player.name;
+    token.node.classList.toggle('team-A', player.team === 'A');
+    token.node.classList.toggle('team-B', player.team === 'B');
     return token;
   }
 

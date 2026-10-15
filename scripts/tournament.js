@@ -21,7 +21,7 @@ const { playBotGame } = require('../server/bots/arena');
 const { createRng, randomInt } = require('../server/game/rng');
 
 function parseArgs(argv) {
-  const opts = { games: 1000, seed: 1, lineup: ['random', 'easy', 'medium', 'hard'], maxTurns: 1000, workers: os.availableParallelism() };
+  const opts = { games: 1000, seed: 1, lineup: ['random', 'easy', 'medium', 'hard'], maxTurns: 1000, workers: os.availableParallelism(), settings: {} };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
@@ -30,6 +30,11 @@ function parseArgs(argv) {
     else if (arg === '--lineup') opts.lineup = next().split(',');
     else if (arg === '--max-turns') opts.maxTurns = Number(next());
     else if (arg === '--workers') opts.workers = Number(next());
+    else if (arg === '--world-events') opts.settings.worldEvents = true;
+    else if (arg === '--bounties') opts.settings.bounties = true;
+    else if (arg === '--landmarks') opts.settings.landmarks = true;
+    else if (arg === '--teams') opts.settings.teams = true;
+    else if (arg === '--chaos') Object.assign(opts.settings, { worldEvents: true, bounties: true, landmarks: true, teams: true });
     else if (/^\d+$/.test(arg)) opts.games = Number(arg);
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -153,7 +158,7 @@ function printTable(summary) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const started = Date.now();
-  const jobs = Array.from({ length: opts.games }, (_, i) => ({ seed: (opts.seed + i) >>> 0, lineup: opts.lineup, maxTurns: opts.maxTurns }));
+  const jobs = Array.from({ length: opts.games }, (_, i) => ({ seed: (opts.seed + i) >>> 0, lineup: opts.lineup, maxTurns: opts.maxTurns, settings: opts.settings }));
   const results = await runGames(jobs, opts.workers);
   console.log(`Tournament: ${opts.games} games, lineup ${opts.lineup.join(', ')} (seats shuffled), cap ${opts.maxTurns} turns, ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
   printTable(summarise(results));

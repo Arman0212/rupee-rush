@@ -34,10 +34,10 @@ function playBotGame({ seed, seats, settings = {}, maxTurns = 1000, onStep, log 
     id: `p${i}`, difficulty: seat.type, params: seat.params, seed: (seed * 31 + i * 7919) >>> 0, log,
   }));
   const byId = new Map(bots.map((b) => [b.id, b]));
-  for (const b of bots) {
-    const r = game.addPlayer({ id: b.id, name: b.id });
+  bots.forEach((b, i) => {
+    const r = game.addPlayer({ id: b.id, name: b.id, team: settings.teams ? (i % 2 === 0 ? 'A' : 'B') : undefined });
     if (!r.ok) throw new Error(r.error);
-  }
+  });
   game.start();
   const tally = { auctions: 0, auctionsSold: 0, tradesProposed: 0, tradesAccepted: 0, illegal: 0 };
   const setsCompleted = bots.map(() => false);

@@ -162,7 +162,7 @@ describe('bankruptcy', () => {
     const events = act(game, 'p1', 'bankrupt');
     assert.equal(findEvent(events, 'bankrupt').creditorId, null);
     for (const id of ['salvador', 'rio', 'tel-aviv']) {
-      assert.deepEqual(prop(game, id), { ownerId: null, buildings: 0, mortgaged: false });
+      assert.deepEqual(prop(game, id), { ownerId: null, buildings: 0, mortgaged: false, landmark: false });
     }
     assert.equal(game.state.decks.treasure.at(-1), 't-jailfree');
     assert.equal(totalMoney(game), before);
@@ -181,7 +181,7 @@ describe('bankruptcy', () => {
   test('the game ends when one player is left', () => {
     const { game } = owesRent();
     const events = act(game, 'p1', 'bankrupt');
-    assert.deepEqual(findEvent(events, 'gameOver'), { type: 'gameOver', winnerId: 'p2', at: 1000 });
+    assert.deepEqual(findEvent(events, 'gameOver'), { type: 'gameOver', winnerId: 'p2', winnerTeam: null, at: 1000 });
     assert.equal(game.state.phase, 'gameOver');
     assert.equal(game.state.winnerId, 'p2');
     assert.equal(game.state.currentPlayerId, null);

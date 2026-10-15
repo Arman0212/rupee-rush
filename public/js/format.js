@@ -1,12 +1,14 @@
 // Names, money and human-readable labels for actions and events.
-import { board, rules } from './shared.js';
+import { board, rules, events } from './shared.js';
 
 const { getTileById, COLOR_GROUPS, MAX_BUILDINGS } = board;
+const { getEvent } = events;
 const { JAIL, BUILDING, unmortgageCost, formatRupees } = rules;
 
 export const money = (amount) => formatRupees(amount);
 export const tileName = (id) => (getTileById(id) || { name: id }).name;
 export const groupName = (group) => (COLOR_GROUPS[group] ? COLOR_GROUPS[group].name : group === 'airport' ? 'Airports' : 'Utilities');
+export const landmarkName = (group) => (COLOR_GROUPS[group] ? COLOR_GROUPS[group].landmark : 'a landmark');
 export const sellRefund = (tile) => Math.round(tile.houseCost * BUILDING.sellBackRatio);
 /**
  * Style for a player-coloured disc: the colour plus whichever ink (white or
@@ -105,6 +107,8 @@ export function shortActionLabel(action, { publicState }) {
     case 'sellHouse': return `Sell +${money(sellRefund(tile))}`;
     case 'mortgage': return `Mortgage +${money(tile.mortgageValue)}`;
     case 'unmortgage': return `Unmortgage ${money(unmortgageCost(tile.price))}`;
+    case 'buildLandmark': return `🏛️ Landmark ${money(tile.houseCost * 3)}`;
+    case 'sellLandmark': return `Sell landmark +${money(Math.round(tile.houseCost * 3 * 0.5))}`;
     default: return action.type;
   }
 }
@@ -158,7 +162,14 @@ export function describeEvent(e, name) {
     case 'propertyTransferred': return `${t(e.tileId)} passed to ${name(e.to)}.`;
     case 'propertyReturned': return `${t(e.tileId)} went back to the bank.`;
     case 'bankrupt': return `${name(e.playerId)} went bankrupt${e.creditorId ? ` to ${name(e.creditorId)}` : ''}.`;
-    case 'gameOver': return e.winnerId ? `${name(e.winnerId)} wins the game!` : 'Game over.';
+    case 'gameOver': return e.winnerTeam ? `Team ${e.winnerTeam} wins the game!` : e.winnerId ? `${name(e.winnerId)} wins the game!` : 'Game over.';
+    case 'worldEventStarted': { const ev = getEvent(e.eventId); return ev ? `${ev.icon} ${ev.name}: ${ev.text}` : 'A world event begins.'; }
+    case 'worldEventEnded': { const ev = getEvent(e.eventId); return ev ? `${ev.name} is over.` : 'The world event is over.'; }
+    case 'bountyPlaced': return `🎯 A ${money(e.value)} bounty is on ${name(e.playerId)}!`;
+    case 'bountyClaimed': return `🎯 ${name(e.to)} claimed the ${money(e.amount)} bounty on ${name(e.holderId)}.`;
+    case 'landmarkBuilt': return `🏛️ ${name(e.from)} built ${landmarkName(e.group)} on ${t(e.tileId)}.`;
+    case 'landmarkSold': return `${landmarkName(e.group)} on ${t(e.tileId)} was sold.`;
+    case 'teammateGift': return `${name(e.from)} sent ${money(e.amount)} to teammate ${name(e.to)}.`;
     case 'playerLeft': return `${name(e.playerId)} left the game.`;
     case 'seatJoined': return e.bot ? `${e.name} (${e.bot} bot) joined the room.` : `${e.name} joined the room.`;
     case 'seatReplacedByBot': return `A ${e.difficulty} bot took over for ${name(e.playerId)}.`;

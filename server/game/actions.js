@@ -14,6 +14,11 @@ const ACTIONS = Object.freeze({
   SELL_HOUSE: 'sellHouse',
   MORTGAGE: 'mortgage',
   UNMORTGAGE: 'unmortgage',
+  // Landmarks mode
+  BUILD_LANDMARK: 'buildLandmark',
+  SELL_LANDMARK: 'sellLandmark',
+  // Team mode: a fee-free gift of cash and/or tiles to a teammate
+  SEND_TO_TEAMMATE: 'sendToTeammate',
   PAY_JAIL_FINE: 'payJailFine',
   USE_JAIL_CARD: 'useJailCard',
   BANKRUPT: 'bankrupt',
@@ -36,7 +41,10 @@ const NOT_IMPLEMENTED = Object.freeze(new Set([ACTIONS.CHAT]));
 const AUCTION_ACTIONS = Object.freeze(new Set([ACTIONS.BID, ACTIONS.PASS]));
 
 /** Actions that name a property and therefore carry a `tileId`. */
-const TILE_ACTIONS = Object.freeze([ACTIONS.BUILD, ACTIONS.SELL_HOUSE, ACTIONS.MORTGAGE, ACTIONS.UNMORTGAGE]);
+const TILE_ACTIONS = Object.freeze([
+  ACTIONS.BUILD, ACTIONS.SELL_HOUSE, ACTIONS.MORTGAGE, ACTIONS.UNMORTGAGE,
+  ACTIONS.BUILD_LANDMARK, ACTIONS.SELL_LANDMARK,
+]);
 
 const PHASE = Object.freeze({
   LOBBY: 'lobby',

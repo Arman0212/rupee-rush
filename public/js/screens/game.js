@@ -5,9 +5,11 @@
 // Things that happen (dice, token walks, cards, toasts) run through an effects
 // queue, one event at a time, so a roll reads as: dice tumble → token walks →
 // card / rent. Tokens snap back to the real state whenever the queue is idle.
-import { board } from '../shared.js';
+import { board, events } from '../shared.js';
 import { el, render, $, sleep } from '../dom.js';
 import { money, tileName, actionLabel, nameLookup, tokenStyle } from '../format.js';
+
+const EVENTS_BY_ID = events.EVENT_BY_ID;
 import { selectMe, selectLegal } from '../store.js';
 import { buildGrid } from '../board/grid.js';
 import { createTokens } from '../board/tokens.js';
@@ -231,6 +233,43 @@ export function createGameScreen({ store, net, act, sound, app, panes }) {
     },
   );
 
+  // ---------------------------------------------------------------------------
+  // Bounty markers on the board tokens
+  // ---------------------------------------------------------------------------
+  store.subscribe(
+    (d) => (d.state && d.state.publicState && d.state.publicState.bounties ? Object.keys(d.state.publicState.bounties.onPlayer).sort().join(',') : ''),
+    (ids) => {
+      const bountied = new Set(ids ? ids.split(',') : []);
+      for (const node of document.querySelectorAll('#token-layer .token')) {
+        const has = bountied.has(node.dataset.player);
+        let mark = node.querySelector('.token-bounty');
+        if (has && !mark) node.append(el('span', { className: 'token-bounty', text: '🎯', attrs: { 'aria-hidden': 'true' } }));
+        else if (!has && mark) mark.remove();
+      }
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // World event banner (slim, above the board)
+  // ---------------------------------------------------------------------------
+  store.subscribe(
+    (d) => {
+      const w = d.state && d.state.publicState && d.state.publicState.world;
+      if (!w) return null;
+      return { event: w.activeEvent, nextInRounds: w.nextInRounds };
+    },
+    (v) => {
+      const host = $('#world-banner');
+      if (!v || !v.event) { host.hidden = true; return render(host); }
+      host.hidden = false;
+      render(host,
+        el('span', { className: 'world-icon', text: v.event.icon, attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'world-name', text: v.event.name }),
+        el('span', { className: 'world-text', text: v.event.effect || v.event.text }),
+        el('span', { className: 'world-round', text: 'ends next round' }));
+    },
+  );
+
   // ===========================================================================
   // Game over
   // ===========================================================================
@@ -388,6 +427,21 @@ export function createGameScreen({ store, net, act, sound, app, panes }) {
         break;
       case 'auctionClosed':
         if (e.winnerId === me) { toast(`You won ${tileName(e.tileId)} for ${money(e.amount)}!`, { kind: 'good', important: true }); sound.play('cash'); }
+        break;
+      case 'worldEventStarted': {
+        const ev = EVENTS_BY_ID[e.eventId];
+        if (ev) toast(`${ev.icon} ${ev.name} — ${ev.text}`, { kind: 'good', important: true, timeout: 6000 });
+        break;
+      }
+      case 'bountyPlaced':
+        toast(`🎯 A ${money(e.value)} bounty is on ${e.playerId === me ? 'you' : name(e.playerId)}!`, { kind: e.playerId === me ? 'bad' : 'good', important: true });
+        break;
+      case 'bountyClaimed':
+        if (e.to === me) { toast(`🎯 You claimed the ${money(e.amount)} bounty on ${name(e.holderId)}!`, { kind: 'good', important: true }); sound.play('cash'); }
+        else if (e.holderId === me) toast(`🎯 ${name(e.to)} claimed the bounty on you.`, { kind: 'bad', important: true });
+        break;
+      case 'landmarkBuilt':
+        if (e.from === me) sound.play('cash');
         break;
       default:
         break;

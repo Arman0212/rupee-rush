@@ -1,10 +1,11 @@
 // The shared game data (board, cards, rules) is loaded as classic UMD scripts
 // before any module runs, and exposed on window.RR. Re-export it for imports.
 const RR = window.RR;
-if (!RR || !RR.board || !RR.cards || !RR.rules) {
+if (!RR || !RR.board || !RR.cards || !RR.rules || !RR.events) {
   throw new Error('Monopoly: shared data failed to load');
 }
 
 export const board = RR.board;
 export const cards = RR.cards;
 export const rules = RR.rules;
+export const events = RR.events;

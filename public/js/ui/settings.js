@@ -34,8 +34,18 @@ const GAMEPLAY_RULES = [
   { key: 'auctionSeconds', icon: '⏳', title: 'Auction timer', help: 'Every bid restarts the clock.', options: [5, 10, 15, 20, 30], label: seconds },
 ];
 
+/** Optional game modes, off by default. */
+const GAME_MODES = [
+  { key: 'worldEvents', icon: '🌍', title: 'World events', help: 'A world event sweeps the board every few rounds.' },
+  { key: 'worldEventEvery', icon: '🔁', title: 'Event frequency', help: 'Full rounds between world events.', options: range('worldEventEvery', 1), label: (v) => `${v} rounds` },
+  { key: 'bounties', icon: '🎯', title: 'Bounties & rivalries', help: 'Dangerous players get a bounty on their head.' },
+  { key: 'bountyRentThreshold', icon: '💥', title: 'Bounty rent', help: 'A single rent this big places a bounty.', options: range('bountyRentThreshold', 100), label: money },
+  { key: 'landmarks', icon: '🏛️', title: 'Landmarks', help: 'Crown a fully built set with a landmark.' },
+  { key: 'teams', icon: '🤝', title: 'Team mode', help: 'Two teams share sets and skip each other’s rent. Needs 4 or 6 players.' },
+];
+
 export function createSettings({ store, net }) {
-  const hosts = { game: $('#settings-game'), rules: $('#settings-rules') };
+  const hosts = { game: $('#settings-game'), rules: $('#settings-rules'), modes: $('#settings-modes') };
   const note = $('#sec-settings .settings-note');
 
   async function save(key, value) {
@@ -82,9 +92,10 @@ export function createSettings({ store, net }) {
       if (!v) return;
       note.textContent = v.status !== 'lobby' ? '(locked during the game)' : v.editable ? '' : '(host only)';
       // Don't rebuild under the host's pointer: just refresh the other values.
-      const focused = [hosts.game, hosts.rules].some((h) => h.contains(document.activeElement));
+      const panels = [hosts.game, hosts.rules, hosts.modes];
+      const focused = panels.some((h) => h.contains(document.activeElement));
       if (focused && hosts.game.dataset.editable === String(v.editable)) {
-        for (const input of [...hosts.game.querySelectorAll('input, select'), ...hosts.rules.querySelectorAll('input, select')]) {
+        for (const input of panels.flatMap((h) => [...h.querySelectorAll('input, select')])) {
           if (input === document.activeElement) continue;
           if (input.type === 'checkbox') input.checked = v.settings[input.name];
           else input.value = String(v.settings[input.name]);
@@ -94,6 +105,7 @@ export function createSettings({ store, net }) {
       hosts.game.dataset.editable = String(v.editable);
       render(hosts.game, rows(GAME_SETTINGS, v.settings, v.editable));
       render(hosts.rules, rows(GAMEPLAY_RULES, v.settings, v.editable));
+      render(hosts.modes, rows(GAME_MODES, v.settings, v.editable));
     },
   );
 }

@@ -142,6 +142,7 @@ class Room {
       connected: true,
       disconnectedAt: null,
       bot: null,
+      team: null,
     };
     this.#seats.set(newSeat.id, newSeat);
     if (!this.hostId) this.hostId = newSeat.id;
@@ -209,6 +210,7 @@ class Room {
     const next = sanitizeSettings({ ...this.settings, ...partial });
     // Never drop the limit below the players already seated.
     next.maxPlayers = Math.max(next.maxPlayers, this.#seats.size);
+    const teamsJustOn = next.teams && !this.settings.teams;
     this.settings = next;
     const events = [this.#roomEvent('settingsChanged', { settings: next })];
     // Turning bots off sends the lobby's bots home.
@@ -218,8 +220,48 @@ class Room {
         events.push(this.#roomEvent('seatLeft', { playerId: seat.id, reason: 'removed' }));
       }
     }
+    // Keep teams sensible: hand out even teams when the mode turns on, clear them when it turns off.
+    if (teamsJustOn) this.#assignTeams();
+    else if (!next.teams) for (const seat of this.#seats.values()) seat.team = null;
     this.#broadcast(events);
     return ok({ settings: this.settings });
+  }
+
+  /** Host only, in the lobby, teams on: put a player on team 'A', 'B' or neither (null). */
+  setTeam(socketId, playerId, team) {
+    const error = this.#requireHost(socketId, STATUS.LOBBY);
+    if (error) return fail(error);
+    if (!this.settings.teams) return fail('team mode is off');
+    const seat = this.#seats.get(playerId);
+    if (!seat) return fail('no such player');
+    if (team !== 'A' && team !== 'B' && team !== null) return fail('unknown team');
+    seat.team = team;
+    this.#broadcast([this.#roomEvent('teamsChanged', {})]);
+    return ok();
+  }
+
+  /** Host only, in the lobby, teams on: deal everyone out into two even teams at random. */
+  shuffleTeams(socketId) {
+    const error = this.#requireHost(socketId, STATUS.LOBBY);
+    if (error) return fail(error);
+    if (!this.settings.teams) return fail('team mode is off');
+    this.#assignTeams();
+    this.#broadcast([this.#roomEvent('teamsChanged', {})]);
+    return ok();
+  }
+
+  /** Split the current seats into two even teams (odd seat out gets no team). */
+  #assignTeams() {
+    const ids = [...this.#seats.keys()];
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(this.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const half = Math.floor(ids.length / 2);
+    ids.forEach((id, i) => {
+      const seat = this.#seats.get(id);
+      seat.team = ids.length % 2 === 1 && i === ids.length - 1 ? null : (i < half ? 'A' : 'B');
+    });
   }
 
   /** Host only. In the lobby anyone can be kicked; mid-game only players gone for AWAY_GRACE_MS. */
@@ -263,6 +305,7 @@ class Room {
       connected: true,
       disconnectedAt: null,
       bot: this.makeBot({ id, difficulty }),
+      team: null,
     };
     this.#seats.set(id, seat);
     this.#broadcast([this.#roomEvent('seatJoined', { playerId: id, name: seat.name, bot: difficulty })]);
@@ -315,7 +358,7 @@ class Room {
     // Each game starts with fresh bot memories (when they last traded and so on).
     for (const seat of this.#botSeats()) seat.bot = this.makeBot({ id: seat.id, difficulty: seat.bot.difficulty });
     for (const seat of this.#seats.values()) {
-      const added = game.addPlayer({ id: seat.id, name: seat.name, color: seat.color });
+      const added = game.addPlayer({ id: seat.id, name: seat.name, color: seat.color, team: this.settings.teams ? seat.team : undefined });
       if (!added.ok) return fail(`could not seat ${seat.name}: ${added.error}`);
     }
     const started = game.start();
@@ -672,6 +715,7 @@ class Room {
         disconnectedAt: s.disconnectedAt,
         isHost: s.id === this.hostId,
         bot: s.bot ? s.bot.difficulty : null,
+        team: s.team,
       })),
     };
   }

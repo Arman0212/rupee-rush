@@ -246,6 +246,7 @@ async function main() {
       await noSideScroll(p, 'game (late)');
     }
     if (!(await host.page.$('dialog.dialog-gameover[open]'))) await boardShowcase(server, code, players, shot);
+    if (!(await host.page.$('dialog.dialog-gameover[open]'))) await modesShowcase(server, code, players, shot);
     if (!(await host.page.$('dialog.dialog-gameover[open]'))) await endgameScenario(server, code, players, shot);
 
     const p3 = players[2];
@@ -471,6 +472,62 @@ async function boardShowcase(server, code, players, shot) {
   }
   for (const p of players) await bothThemes(p, 'game');
   say('board: GO top-left, clockwise; text along the side columns, upright elsewhere; nothing spills; flags on the inner edge');
+}
+
+/** Turn on all four modes and seed a vivid state, then screenshot the banner, badges, landmark and team panel. */
+async function modesShowcase(server, code, players, shot) {
+  const [host, , chitra] = players;
+  const room = server.manager.get(code);
+  const state = room.game.state;
+  const ids = state.players.map((p) => p.id);
+  room.settings = { ...room.settings, worldEvents: true, bounties: true, landmarks: true, teams: true };
+  Object.assign(state.settings, { worldEvents: true, bounties: true, landmarks: true, teams: true });
+  // Teams: split the seats (odd count is fine for a screenshot).
+  state.players.forEach((p, i) => { p.team = i % 2 === 0 ? 'A' : 'B'; });
+  // A world event in force (anchor on the current player, so ending a turn won't clear it).
+  state.world.activeEventId = 'tech-boom';
+  state.world.anchorId = state.currentPlayerId;
+  // A landmark on a fully hotelled set.
+  const tilesOf = (group) => board.groupMembers(group).map((i) => board.BOARD[i].id);
+  for (const prop of Object.values(state.properties)) Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false, landmark: false });
+  const orange = tilesOf('orange');
+  for (const id of orange) Object.assign(state.properties[id], { ownerId: ids[0], buildings: 5 });
+  state.properties[orange[1]].landmark = true;
+  for (const id of tilesOf('red')) Object.assign(state.properties[id], { ownerId: ids[1] });
+  for (const id of tilesOf('lightBlue')) Object.assign(state.properties[id], { ownerId: ids[2 % ids.length] });
+  // Bounties and a rivalry.
+  state.bounties.onPlayer[ids[1]] = { value: 500, triggers: 4 };
+  state.bounties.rent[[ids[0], ids[1]].sort().join('|')] = 1200;
+  // Push the seeded state to every client with one real action from the player on turn.
+  const current = players.find((p) => p.name === state.players.find((x) => x.id === state.currentPlayerId).name);
+  await waitIdle(current.page);
+  const btn = await current.page.$('#center-actions button[data-action]:enabled');
+  if (btn) { await btn.click(); await waitIdle(current.page); }
+  await host.page.waitForSelector('#world-banner:not([hidden])', { timeout: 8000 }).catch(() => {});
+  await sleep(500);
+
+  await closeCards(host.page);
+  await shot(host, 'mode-world-banner');
+  if (!(await host.page.isVisible('#world-banner'))) errors.push('world event banner not visible');
+  await showPanel(host.page, 'players');
+  await sleep(200);
+  if (!(await host.page.$('.bounty-badge'))) errors.push('no bounty badge rendered');
+  if (!(await host.page.$('#team-panel .team-panel-row'))) errors.push('team panel not rendered');
+  await host.page.locator('#sec-players').screenshot({ path: path.join(OUT, `${host.label}-mode-players.png`) });
+  await bothThemes(host, 'modes');
+  await showPanel(chitra.page, 'players');
+  await sleep(150);
+  await shot(chitra, 'mode-mobile', { fullPage: true });
+  if (!(await host.page.$('#board .tile-landmark'))) errors.push('landmark marker not on the board');
+  say('modes: world event banner, bounty badge, rivalry, landmark tile and team panel');
+
+  // Turn the modes back off so the normal endgame scenario can run.
+  room.settings = { ...room.settings, worldEvents: false, bounties: false, landmarks: false, teams: false };
+  Object.assign(state.settings, { worldEvents: false, bounties: false, landmarks: false, teams: false });
+  state.players.forEach((p) => { p.team = null; });
+  state.world.activeEventId = null;
+  state.bounties = { onPlayer: {}, setsAwarded: {}, rent: {} };
+  for (const prop of Object.values(state.properties)) Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false, landmark: false });
 }
 
 async function endgameScenario(server, code, players, shot) {

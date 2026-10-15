@@ -35,7 +35,7 @@ export function createProperties({ store, act, onSelectTile }) {
             el('span', { className: 'muted', text: `${mine.length} of ${members.length}${mine.length === members.length ? ' · full set' : ''}` })),
           el('ul', { className: 'city-rows' }, mine.map((tile) => {
             const prop = v.props[tile.id];
-            const status = prop.mortgaged ? 'Mortgaged' : prop.buildings ? buildingWord(prop.buildings) : 'No buildings';
+            const status = prop.landmark ? '🏛️ Landmark' : prop.mortgaged ? 'Mortgaged' : prop.buildings ? buildingWord(prop.buildings) : 'No buildings';
             const actions = v.legal.filter((a) => a.tileId === tile.id);
             return el('li', { className: `city-row${prop.mortgaged ? ' is-mortgaged' : ''}` },
               el('button', {

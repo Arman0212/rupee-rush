@@ -35,7 +35,8 @@
  *   debtCleared, debtForgiven, propertyTransferred, propertyReturned,
  *   bankrupt, gameOver, auctionStarted, bidPlaced, auctionPassed,
  *   auctionClosed, tradeProposed, tradeAccepted, tradeDeclined,
- *   tradeCancelled, tradePayment, mortgageFee.
+ *   tradeCancelled, tradePayment, mortgageFee, worldEventStarted,
+ *   worldEventEnded.
  *
  * Auctions
  *   With settings.auctions on, declining a purchase puts the tile up for
@@ -51,18 +52,20 @@
 
 const board = require('../../shared/board');
 const { DECKS, getCard } = require('../../shared/cards');
+const { EVENTS, getEvent } = require('../../shared/events');
 const rules = require('../../shared/rules');
 const { createRng, randomSeed, randomInt, shuffle } = require('./rng');
 const { ACTIONS, NOT_IMPLEMENTED, AUCTION_ACTIONS, TILE_ACTIONS, PHASE, BANK, JACKPOT } = require('./actions');
 const trades = require('./trades');
 
 const { BOARD, BOARD_SIZE, TILE, AIRPORT_RENT, UTILITY_MULTIPLIER, MAX_BUILDINGS, JAIL_INDEX } = board;
-const { JAIL, DICE, BUILDING, ROOM, PLAYER_COLORS, AUCTION, TRADE, formatRupees } = rules;
+const { JAIL, DICE, BUILDING, LANDMARK, BOUNTY, ROOM, PLAYER_COLORS, AUCTION, TRADE, formatRupees } = rules;
 
 const STATE_VERSION = 1;
 const MAX_ID_LENGTH = 64;
 const ACTIVE_PHASES = [PHASE.AWAITING_ROLL, PHASE.BUY_DECISION, PHASE.AWAITING_END];
 const OWNABLE_TILES = BOARD.filter(board.isOwnable);
+const CITY_GROUPS = [...new Set(BOARD.filter((t) => t.type === TILE.CITY).map((t) => t.group))];
 /** Net-worth snapshots kept for the end-of-game chart; older ones are thinned out beyond this. */
 const MAX_WORTH_POINTS = 60;
 
@@ -113,7 +116,7 @@ class Game {
 
   static #initialState(settings, seed, createdAt) {
     const properties = {};
-    for (const tile of OWNABLE_TILES) properties[tile.id] = { ownerId: null, buildings: 0, mortgaged: false };
+    for (const tile of OWNABLE_TILES) properties[tile.id] = { ownerId: null, buildings: 0, mortgaged: false, landmark: false };
     return {
       version: STATE_VERSION,
       seed,
@@ -124,6 +127,7 @@ class Game {
       turnNumber: 0,
       currentPlayerId: null,
       winnerId: null,
+      winnerTeam: null,
       players: [],
       properties,
       decks: { surprise: [], treasure: [] },
@@ -135,6 +139,10 @@ class Game {
       tradeSeq: 0,
       stats: Game.#freshStats(),
       devLedger: { bankOut: 0, bankIn: 0 },
+      // World events mode: at most one active event, drawn every few rounds.
+      world: { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: settings.worldEventEvery, lastSeatIndex: -1 },
+      // Bounties mode: a bounty on dangerous players, and rent totals between pairs.
+      bounties: { onPlayer: {}, setsAwarded: {}, rent: {} },
     };
   }
 
@@ -261,6 +269,9 @@ class Game {
     state.tradeSeq ??= 0;
     state.stats ??= Game.#freshStats();
     state.devLedger ??= { bankOut: 0, bankIn: 0 };
+    state.world ??= { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: state.settings.worldEventEvery || 3, lastSeatIndex: -1 };
+    state.bounties ??= { onPlayer: {}, setsAwarded: {}, rent: {} };
+    state.winnerTeam ??= null;
     game.state = state;
     return game;
   }
@@ -270,12 +281,22 @@ class Game {
    * seed / rng state, either of which would let a client predict dice and cards.
    */
   publicState() {
-    const { seed, decks, stats, devLedger, ...visible } = cloneData(this.state);
+    const { seed, decks, stats, devLedger, world, ...visible } = cloneData(this.state);
     return {
       ...visible,
       // Stats only matter at the end, so they don't ride along on every broadcast.
       stats: this.state.phase === PHASE.GAME_OVER ? stats : null,
       decks: { surprise: { remaining: decks.surprise.length }, treasure: { remaining: decks.treasure.length } },
+      // World events: the active event and how many rounds until the next one.
+      world: this.state.settings.worldEvents ? {
+        activeEvent: world.activeEventId ? getEvent(world.activeEventId) : null,
+        nextInRounds: Math.max(0, world.nextEventAtRound - world.roundsElapsed),
+      } : null,
+      // Bounties: who carries a bounty, and the rivalry (top rent pair).
+      bounties: this.state.settings.bounties ? {
+        onPlayer: visible.bounties.onPlayer,
+        rivalry: this.#topRivalry(),
+      } : null,
     };
   }
 
@@ -289,6 +310,7 @@ class Game {
     if (error) return fail(error);
     this.#events = [];
     apply();
+    if (this.state.settings.bounties) this.#checkThirdSets();
     if (this.state.trades.length) this.#sweepTrades();
     const events = this.#events;
     this.#events = [];
@@ -309,6 +331,9 @@ class Game {
     [ACTIONS.SELL_HOUSE]: { check: (g, p, a) => g.#checkSellHouse(p, a), run: (g, p, a) => g.#doSellHouse(p, a) },
     [ACTIONS.MORTGAGE]: { check: (g, p, a) => g.#checkMortgage(p, a), run: (g, p, a) => g.#doMortgage(p, a) },
     [ACTIONS.UNMORTGAGE]: { check: (g, p, a) => g.#checkUnmortgage(p, a), run: (g, p, a) => g.#doUnmortgage(p, a) },
+    [ACTIONS.BUILD_LANDMARK]: { check: (g, p, a) => g.#checkBuildLandmark(p, a), run: (g, p, a) => g.#doBuildLandmark(p, a) },
+    [ACTIONS.SELL_LANDMARK]: { check: (g, p, a) => g.#checkSellLandmark(p, a), run: (g, p, a) => g.#doSellLandmark(p, a) },
+    [ACTIONS.SEND_TO_TEAMMATE]: { check: (g, p, a) => g.#checkSendToTeammate(p, a), run: (g, p, a) => g.#doSendToTeammate(p, a) },
     [ACTIONS.PAY_JAIL_FINE]: { check: (g, p) => g.#checkPayJailFine(p), run: (g, p) => g.#doPayJailFine(p) },
     [ACTIONS.USE_JAIL_CARD]: { check: (g, p) => g.#checkUseJailCard(p), run: (g, p) => g.#doUseJailCard(p) },
     [ACTIONS.BANKRUPT]: { check: (g, p) => g.#checkBankrupt(p), run: (g, p) => g.#declareBankruptcy(p, 'debt') },
@@ -364,13 +389,14 @@ class Game {
     return null;
   }
 
-  #doAddPlayer({ id, name, color }) {
+  #doAddPlayer({ id, name, color, team }) {
     const players = this.state.players;
     const cleanName = typeof name === 'string' ? name.trim().slice(0, ROOM.nameMaxLength) : '';
     const player = {
       id,
       name: cleanName || `Player ${players.length + 1}`,
       color: this.#pickColor(color),
+      team: team === 'A' || team === 'B' ? team : null,
       cash: 0,
       position: 0,
       inJail: false,
@@ -382,7 +408,7 @@ class Game {
       debt: { amount: 0, creditorId: null, owed: [] },
     };
     players.push(player);
-    this.#emit('playerJoined', { playerId: id, name: player.name, color: player.color });
+    this.#emit('playerJoined', { playerId: id, name: player.name, color: player.color, team: player.team });
   }
 
   #pickColor(requested) {
@@ -394,6 +420,14 @@ class Game {
   #checkStart() {
     if (this.state.phase !== PHASE.LOBBY) return 'game already started';
     if (this.state.players.length < 2) return 'need at least 2 players';
+    if (this.state.settings.teams) {
+      const n = this.state.players.length;
+      if (n !== 4 && n !== 6) return 'team mode needs exactly 4 or 6 players';
+      const a = this.state.players.filter((p) => p.team === 'A').length;
+      const b = this.state.players.filter((p) => p.team === 'B').length;
+      if (a + b !== n) return 'every player needs a team';
+      if (a !== b) return 'the teams must be even';
+    }
     return null;
   }
 
@@ -458,6 +492,142 @@ class Game {
     player.doublesCount = 0;
     this.#recordWorth(false);
     this.#emit('turnStarted', { playerId: player.id, turnNumber: s.turnNumber });
+    if (s.settings.worldEvents) this.#tickWorldEvents(player);
+  }
+
+  // =========================================================================
+  // World events (optional mode)
+  // =========================================================================
+
+  /**
+   * Called at the start of every turn: end the active event once a full round
+   * has passed (its anchor player is up again, or has gone), count completed
+   * rounds, and draw a fresh event when one is due and none is running.
+   */
+  #tickWorldEvents(player) {
+    const w = this.state.world;
+    const idx = this.state.players.indexOf(player);
+    if (w.activeEventId) {
+      const anchor = this.#player(w.anchorId);
+      if (player.id === w.anchorId || !anchor || anchor.bankrupt) {
+        this.#emit('worldEventEnded', { eventId: w.activeEventId });
+        w.activeEventId = null;
+        w.anchorId = null;
+      }
+    }
+    // A round completes whenever turn order wraps back towards the first seat.
+    if (w.lastSeatIndex >= 0 && idx <= w.lastSeatIndex) w.roundsElapsed += 1;
+    w.lastSeatIndex = idx;
+    if (!w.activeEventId && w.roundsElapsed >= w.nextEventAtRound) {
+      this.#startWorldEvent(player);
+      w.nextEventAtRound = w.roundsElapsed + this.state.settings.worldEventEvery;
+    }
+  }
+
+  #startWorldEvent(anchor) {
+    const w = this.state.world;
+    const event = EVENTS[randomInt(this.rng, EVENTS.length)];
+    w.activeEventId = event.id;
+    w.anchorId = anchor.id;
+    this.#emit('worldEventStarted', { eventId: event.id, anchorId: anchor.id });
+    if (event.onStart) this.#applyEventOnStart(event.onStart);
+  }
+
+  /** A one-off bank payment the moment an event is drawn. Never pushes anyone into debt. */
+  #applyEventOnStart(onStart) {
+    const meta = { reason: 'worldEvent' };
+    for (const p of this.state.players.filter((x) => !x.bankrupt)) {
+      if (onStart.kind === 'eachCollect') {
+        this.#transfer(BANK, p.id, onStart.amount, 'moneyCollected', meta);
+      } else if (onStart.kind === 'eachPayFraction') {
+        const amount = Math.min(Math.max(0, p.cash), rules.rupees(Math.max(0, p.cash) * onStart.fraction));
+        if (amount > 0) this.#transfer(p.id, BANK, amount, 'moneyPaid', meta);
+      } else if (onStart.kind === 'eachPerBuilding') {
+        const bill = this.#repairBill(p.id, { perHouse: onStart.perHouse, perHotel: onStart.perHotel });
+        const amount = Math.min(Math.max(0, p.cash), bill);
+        if (amount > 0) this.#transfer(p.id, BANK, amount, 'moneyPaid', meta);
+      }
+    }
+  }
+
+  /** Modifiers of the event in force right now, or an empty object. */
+  #eventModifiers() {
+    const id = this.state.settings.worldEvents ? this.state.world.activeEventId : null;
+    const event = id ? getEvent(id) : null;
+    return (event && event.modifiers) || {};
+  }
+
+  /** How much rent is scaled for a given tile by the active event (1 when nothing applies). */
+  #rentModifier(tile) {
+    const mod = this.#eventModifiers();
+    let factor = 1;
+    if (mod.rentMultiplier) {
+      const m = mod.rentMultiplier;
+      if (m.all || (m.groups && m.groups.includes(tile.group))) factor *= m.factor;
+    }
+    if (tile.type === TILE.AIRPORT && mod.airportRentFactor !== undefined) factor *= mod.airportRentFactor;
+    if (tile.type === TILE.UTILITY && mod.utilityRentFactor !== undefined) factor *= mod.utilityRentFactor;
+    return factor;
+  }
+
+  // =========================================================================
+  // Bounties and rivalries (optional mode)
+  // =========================================================================
+
+  /** Unordered pair key for the rivalry rent map. */
+  static #pairKey(a, b) {
+    return [a, b].sort().join('|');
+  }
+
+  /** The pair with the most rent paid between them, or null. */
+  #topRivalry() {
+    let best = null;
+    for (const [key, total] of Object.entries(this.state.bounties.rent)) {
+      if (!best || total > best.total) {
+        const [a, b] = key.split('|');
+        best = { a, b, total };
+      }
+    }
+    return best;
+  }
+
+  #fullSetCount(playerId) {
+    return CITY_GROUPS.filter((g) => this.#ownsGroup(playerId, g)).length;
+  }
+
+  /** Remember rent flowing between two players, for the rivalry read-out. */
+  #recordRent(payerId, ownerId, amount) {
+    if (amount <= 0) return;
+    const key = Game.#pairKey(payerId, ownerId);
+    this.state.bounties.rent[key] = (this.state.bounties.rent[key] || 0) + amount;
+  }
+
+  /** Put (or raise) a bounty on a player who has just become dangerous. */
+  #placeBounty(player, reason) {
+    const map = this.state.bounties.onPlayer;
+    const triggers = (map[player.id] ? map[player.id].triggers : 0) + 1;
+    const value = Math.min(BOUNTY.max, BOUNTY.base + BOUNTY.perExtra * (triggers - 1));
+    map[player.id] = { value, triggers };
+    this.#emit('bountyPlaced', { playerId: player.id, value, triggers, reason });
+  }
+
+  /** When a bounty holder pays rent, the bank pays the owner the bounty on top. */
+  #claimBountyIfAny(holder, owner, tileId) {
+    const bounty = this.state.bounties.onPlayer[holder.id];
+    if (!bounty) return;
+    delete this.state.bounties.onPlayer[holder.id];
+    this.#transfer(BANK, owner.id, bounty.value, 'bountyClaimed', { holderId: holder.id, tileId });
+  }
+
+  /** After any ownership change: a bounty on anyone who now holds three colour sets. */
+  #checkThirdSets() {
+    for (const p of this.state.players) {
+      if (p.bankrupt || this.state.bounties.setsAwarded[p.id]) continue;
+      if (this.#fullSetCount(p.id) >= BOUNTY.thirdSetTrigger) {
+        this.state.bounties.setsAwarded[p.id] = true;
+        this.#placeBounty(p, 'thirdSet');
+      }
+    }
   }
 
   /** The next non-bankrupt player after `fromId` in seat order (works if `fromId` just went bankrupt). */
@@ -554,7 +724,8 @@ class Game {
     this.state.stats.landings[p.position] += 1;
     this.#emit('moved', { playerId: p.id, from, to: p.position, passedGo });
     if (passedGo && collectGo) {
-      this.#transfer(BANK, p.id, this.state.settings.goSalary, 'moneyCollected', { reason: 'goSalary' });
+      const salary = rules.rupees(this.state.settings.goSalary * (this.#eventModifiers().goFactor || 1));
+      if (salary > 0) this.#transfer(BANK, p.id, salary, 'moneyCollected', { reason: 'goSalary' });
     }
   }
 
@@ -576,13 +747,16 @@ class Game {
    */
   #resolveLanding(p, ctx) {
     const tile = BOARD[p.position];
+    if (tile.type === TILE.CITY) this.#applyLandBonus(p, tile);
     switch (tile.type) {
       case TILE.CITY:
       case TILE.AIRPORT:
       case TILE.UTILITY:
         return this.#landOnProperty(p, tile, ctx);
-      case TILE.TAX:
-        return this.#payFine(p, tile.amount, 'taxPaid', { tileId: tile.id });
+      case TILE.TAX: {
+        const amount = this.#eventModifiers().taxFree ? 0 : tile.amount;
+        return amount > 0 ? this.#payFine(p, amount, 'taxPaid', { tileId: tile.id }) : undefined;
+      }
       case TILE.SURPRISE:
         return this.#drawCard(p, 'surprise');
       case TILE.TREASURE:
@@ -593,6 +767,14 @@ class Game {
         return this.#collectJackpot(p);
       default:
         return undefined; // GO (salary already paid) and Jail (just visiting)
+    }
+  }
+
+  /** Tourist Season and friends: the bank pays whoever lands on a matching city. */
+  #applyLandBonus(p, tile) {
+    const bonus = this.#eventModifiers().landBonus;
+    if (bonus && bonus.groups.includes(tile.group)) {
+      this.#transfer(BANK, p.id, bonus.amount, 'moneyCollected', { reason: 'worldEvent', tileId: tile.id });
     }
   }
 
@@ -608,6 +790,7 @@ class Game {
       return;
     }
     if (prop.ownerId === p.id) return;
+    if (this.#sameTeam(p.id, prop.ownerId)) return; // teammates don't pay each other rent
 
     const owner = this.#player(prop.ownerId);
     if (prop.mortgaged || (owner.inJail && !this.state.settings.collectRentInJail)) {
@@ -623,25 +806,53 @@ class Game {
       this.state.stats.biggestRent = { amount, from: p.id, to: owner.id, tileId: tile.id, turnNumber: this.state.turnNumber };
     }
     this.#transfer(p.id, owner.id, amount, 'rentPaid', { tileId: tile.id });
+    if (this.state.settings.bounties && amount > 0) {
+      this.#recordRent(p.id, owner.id, amount);
+      if (amount >= this.state.settings.bountyRentThreshold) this.#placeBounty(owner, 'rent');
+      this.#claimBountyIfAny(p, owner, tile.id);
+    }
   }
 
   /** Rent owed on an owned, unmortgaged tile (owner checks are done by the caller). */
   #rentFor(tile, ctx) {
     const prop = this.state.properties[tile.id];
     const owned = this.#countOwnedInGroup(prop.ownerId, tile.group);
+    let base;
     switch (tile.type) {
-      case TILE.CITY: {
-        if (prop.buildings > 0) return tile.rent[prop.buildings];
-        const fullSet = this.state.settings.doubleRentOnFullSet && this.#ownsGroup(prop.ownerId, tile.group);
-        return tile.rent[0] * (fullSet ? 2 : 1);
-      }
+      case TILE.CITY:
+        base = this.#cityRent(tile, prop);
+        break;
       case TILE.AIRPORT:
-        return AIRPORT_RENT[owned - 1] * (ctx.airportMultiplier || 1);
+        base = AIRPORT_RENT[owned - 1] * (ctx.airportMultiplier || 1);
+        break;
       case TILE.UTILITY:
-        return ctx.diceTotal * (ctx.utilityMultiplier || UTILITY_MULTIPLIER[owned]);
+        base = ctx.diceTotal * (ctx.utilityMultiplier || UTILITY_MULTIPLIER[owned]);
+        break;
       default:
         return 0;
     }
+    return rules.rupees(base * this.#rentModifier(tile));
+  }
+
+  /** Base city rent, before world-event scaling: buildings, landmarks and the full-set double. */
+  #cityRent(tile, prop) {
+    const ignoreHouses = this.#eventModifiers().rentNoHouses;
+    if (prop.landmark) return this.#landmarkRent(tile);
+    if (prop.buildings > 0 && !ignoreHouses) return tile.rent[prop.buildings] * this.#setLandmarkBonus(tile, prop);
+    const fullSet = this.state.settings.doubleRentOnFullSet && this.#ownsGroup(prop.ownerId, tile.group);
+    return tile.rent[0] * (fullSet ? 2 : 1) * this.#setLandmarkBonus(tile, prop);
+  }
+
+  /** Landmark rent: 1.5× the hotel rent, rounded to the nearest ₹5. */
+  #landmarkRent(tile) {
+    return Math.round((tile.rent[MAX_BUILDINGS] * LANDMARK.rentMultiplier) / LANDMARK.rentRounding) * LANDMARK.rentRounding;
+  }
+
+  /** +10% rent on the other cities of a set while a landmark stands on one of them. */
+  #setLandmarkBonus(tile, prop) {
+    if (prop.landmark || tile.type !== TILE.CITY) return 1;
+    const hasLandmark = this.#groupProps(tile.group).some((g) => g.landmark);
+    return hasLandmark ? LANDMARK.setBonus : 1;
   }
 
   #checkBuy(p) {
@@ -707,15 +918,20 @@ class Game {
     if (set.some((g) => g.mortgaged)) return 'a property in this set is mortgaged';
     if (prop.buildings >= MAX_BUILDINGS) return 'this city already has a hotel';
     if (prop.buildings > Math.min(...set.map((g) => g.buildings))) return 'build evenly across the set';
-    if (p.cash < tile.houseCost) return 'not enough cash';
+    if (p.cash < this.#houseCost(tile)) return 'not enough cash';
     return null;
+  }
+
+  /** House/hotel cost, scaled by a Housing Slump or Heatwave event. */
+  #houseCost(tile) {
+    return rules.rupees(tile.houseCost * (this.#eventModifiers().houseCostFactor || 1));
   }
 
   #doBuild(p, { tileId }) {
     const tile = board.getTileById(tileId);
     const prop = this.state.properties[tileId];
     prop.buildings += 1;
-    this.#transfer(p.id, BANK, tile.houseCost, 'built', { tileId, buildings: prop.buildings });
+    this.#transfer(p.id, BANK, this.#houseCost(tile), 'built', { tileId, buildings: prop.buildings });
   }
 
   #checkSellHouse(p, action) {
@@ -723,6 +939,7 @@ class Game {
     if (turnError) return turnError;
     const { error, tile, prop } = this.#ownedTile(p, action.tileId);
     if (error) return error;
+    if (this.state.settings.landmarks && this.#setHasLandmark(tile.group)) return 'sell the landmark first';
     if (prop.buildings === 0) return 'no buildings to sell';
     if (prop.buildings < Math.max(...this.#groupProps(tile.group).map((g) => g.buildings))) return 'sell evenly across the set';
     return null;
@@ -767,6 +984,120 @@ class Game {
     this.state.properties[tileId].mortgaged = false;
   }
 
+  // =========================================================================
+  // Landmarks (optional mode)
+  // =========================================================================
+
+  #landmarkCost(tile) {
+    return rules.rupees(tile.houseCost * LANDMARK.costMultiplier);
+  }
+
+  /** Does the set have a hotel on every city (the prerequisite for a landmark)? */
+  #setFullyBuilt(group) {
+    return this.#groupProps(group).every((g) => g.buildings === MAX_BUILDINGS);
+  }
+
+  #setHasLandmark(group) {
+    return this.#groupProps(group).some((g) => g.landmark);
+  }
+
+  #checkBuildLandmark(p, action) {
+    if (!this.state.settings.landmarks) return 'landmarks are not enabled';
+    const turnError = this.#checkManageTurn(p, false);
+    if (turnError) return turnError;
+    const { error, tile, prop } = this.#ownedTile(p, action.tileId);
+    if (error) return error;
+    if (tile.type !== TILE.CITY) return 'landmarks are built on cities';
+    if (!this.#ownsGroup(p.id, tile.group)) return 'you need the whole colour set';
+    if (!this.#setFullyBuilt(tile.group)) return 'every city in the set needs a hotel first';
+    if (this.#setHasLandmark(tile.group)) return 'this set already has a landmark';
+    if (prop.landmark) return 'this city already has a landmark';
+    if (p.cash < this.#landmarkCost(tile)) return 'not enough cash';
+    return null;
+  }
+
+  #doBuildLandmark(p, { tileId }) {
+    const tile = board.getTileById(tileId);
+    this.state.properties[tileId].landmark = true;
+    this.#transfer(p.id, BANK, this.#landmarkCost(tile), 'landmarkBuilt', { tileId, group: tile.group });
+  }
+
+  #checkSellLandmark(p, action) {
+    const turnError = this.#checkManageTurn(p, true); // debtors may sell to raise cash
+    if (turnError) return turnError;
+    const { error, prop } = this.#ownedTile(p, action.tileId);
+    if (error) return error;
+    if (!prop.landmark) return 'no landmark here';
+    return null;
+  }
+
+  #doSellLandmark(p, { tileId }) {
+    const tile = board.getTileById(tileId);
+    this.state.properties[tileId].landmark = false;
+    const refund = rules.rupees(this.#landmarkCost(tile) * LANDMARK.sellBackRatio);
+    this.#transfer(BANK, p.id, refund, 'landmarkSold', { tileId, group: tile.group });
+  }
+
+  // =========================================================================
+  // Teams (optional mode)
+  // =========================================================================
+
+  /** The team letter ('A' | 'B') a player is on, or null when teams are off. */
+  #teamOf(playerId) {
+    if (!this.state.settings.teams) return null;
+    const p = this.#player(playerId);
+    return (p && p.team) || null;
+  }
+
+  #sameTeam(a, b) {
+    const ta = this.#teamOf(a);
+    return ta !== null && ta === this.#teamOf(b);
+  }
+
+  /** True when b is a (non-null) owner who is a, or a's teammate. */
+  #sameTeamOrSelf(a, b) {
+    return b != null && (a === b || this.#sameTeam(a, b));
+  }
+
+  /** Living teammates of a player (excluding themselves). */
+  #teammates(playerId) {
+    return this.state.players.filter((o) => o.id !== playerId && !o.bankrupt && this.#sameTeam(playerId, o.id));
+  }
+
+  #checkSendToTeammate(p, action) {
+    if (!this.state.settings.teams) return 'teams are not enabled';
+    const turnError = this.#checkManageTurn(p, true); // allowed any time it's your management window or you're in debt
+    if (turnError) return turnError;
+    if (p.cash < 0) return 'clear your debt first';
+    const to = this.#player(action.toId);
+    if (!to || to.bankrupt) return 'pick a teammate';
+    if (!this.#sameTeam(p.id, to.id)) return 'you can only send to a teammate';
+    const g = trades.normalizeSide(action.give || {});
+    if (g.error) return g.error;
+    if (trades.isEmptySide(g.side)) return 'send some cash or a property';
+    if (g.side.jailCards.length) return 'jail-free cards cannot be sent this way';
+    if (g.side.cash > p.cash) return `you don't have ${formatRupees(g.side.cash)}`;
+    for (const tileId of g.side.tileIds) {
+      const problem = trades.tileProblem(this.state, p.id, tileId);
+      if (problem) return problem;
+    }
+    return null;
+  }
+
+  #doSendToTeammate(p, action) {
+    const to = this.#player(action.toId);
+    const side = trades.normalizeSide(action.give).side;
+    // Re-validate tiles and cash; silently drop anything no longer valid.
+    const tiles = side.tileIds.filter((id) => !trades.tileProblem(this.state, p.id, id));
+    const cash = Math.min(side.cash, Math.max(0, p.cash));
+    if (cash > 0) this.#transfer(p.id, to.id, cash, 'teammateGift', { toId: to.id });
+    for (const tileId of tiles) {
+      const prop = this.state.properties[tileId];
+      prop.ownerId = to.id;
+      this.#emit('propertyTransferred', { tileId, from: p.id, to: to.id, mortgaged: prop.mortgaged, reason: 'teammate' });
+    }
+  }
+
   #groupProps(group) {
     return board.groupMembers(group).map((i) => this.state.properties[BOARD[i].id]);
   }
@@ -775,8 +1106,13 @@ class Game {
     return this.#groupProps(group).filter((g) => g.ownerId === ownerId).length;
   }
 
+  /**
+   * Owns the whole colour set. In team mode a teammate's tiles count towards
+   * the set (for building, landmarks and the full-set rent bonus); with teams
+   * off this is just single-player ownership.
+   */
   #ownsGroup(ownerId, group) {
-    return this.#countOwnedInGroup(ownerId, group) === board.groupMembers(group).length;
+    return board.groupMembers(group).every((i) => this.#sameTeamOrSelf(ownerId, this.state.properties[BOARD[i].id].ownerId));
   }
 
   /** [tile, prop] pairs for everything a player owns. */
@@ -999,8 +1335,13 @@ class Game {
    * debt if that's a live player, otherwise back to the bank.
    */
   #declareBankruptcy(p, reason, { toBank = false } = {}) {
-    const creditor = toBank ? null : this.#player(p.debt.creditorId);
-    const creditorId = creditor && !creditor.bankrupt ? creditor.id : BANK;
+    let creditor = toBank ? null : this.#player(p.debt.creditorId);
+    let creditorId = creditor && !creditor.bankrupt ? creditor.id : BANK;
+    // Team mode: assets that would go to the bank go to a living teammate instead.
+    if (creditorId === BANK && this.state.settings.teams) {
+      const mate = this.#teammates(p.id)[0];
+      if (mate) { creditor = mate; creditorId = mate.id; }
+    }
     if (creditorId === BANK) this.#surrenderToBank(p);
     else this.#surrenderToPlayer(p, creditor);
 
@@ -1011,18 +1352,59 @@ class Game {
     p.jailTurns = 0;
     p.doublesCount = 0;
     this.#leaveAuction(p);
+    if (this.state.settings.bounties) {
+      delete this.state.bounties.onPlayer[p.id];
+      // A bounty is for bankrupting a rival, not for a teammate inheriting assets.
+      if (creditorId !== BANK && !this.#sameTeam(p.id, creditorId)) this.#placeBounty(this.#player(creditorId), 'bankruptcy');
+    }
     this.#emit('bankrupt', { playerId: p.id, creditorId, reason });
+    // Team mode: a bankruptcy can split a built set across teams; sell back the stranded buildings.
+    if (this.state.settings.teams) this.#reconcileStrandedBuildings();
 
     const survivors = this.state.players.filter((o) => !o.bankrupt);
-    if (survivors.length <= 1) return this.#endGame(survivors[0]);
+    if (this.#gameIsWon(survivors)) return this.#endGame(survivors);
     if (this.state.currentPlayerId === p.id) this.#beginTurn(this.#nextActivePlayer(p.id));
     this.#endAuctionIfDecided();
     return undefined;
   }
 
+  /**
+   * After a team-mode bankruptcy a built colour set may be split across teams
+   * (one teammate's tiles went to an opponent). Such stranded buildings and
+   * landmarks are sold back to the bank, their owners refunded, as if the set
+   * had been broken up.
+   */
+  #reconcileStrandedBuildings() {
+    for (const group of CITY_GROUPS) {
+      const indexes = board.groupMembers(group);
+      const props = indexes.map((i) => this.state.properties[BOARD[i].id]);
+      if (!props.some((pr) => pr.buildings > 0 || pr.landmark)) continue;
+      const anchor = props.map((pr) => pr.ownerId).find(Boolean);
+      const whole = props.every((pr) => this.#sameTeamOrSelf(anchor, pr.ownerId));
+      const counts = props.map((pr) => pr.buildings);
+      const even = Math.max(...counts) - Math.min(...counts) <= 1;
+      // A set that is still one team's and evenly built is fine; otherwise clear its buildings.
+      if (whole && even) continue;
+      indexes.forEach((i, k) => {
+        const tile = BOARD[i];
+        const prop = props[k];
+        if (prop.landmark) {
+          prop.landmark = false;
+          this.#transfer(BANK, prop.ownerId, rules.rupees(this.#landmarkCost(tile) * LANDMARK.sellBackRatio), 'landmarkSold', { tileId: tile.id, reason: 'setBroken' });
+        }
+        if (prop.buildings > 0) {
+          const refund = rules.rupees(prop.buildings * tile.houseCost * BUILDING.sellBackRatio);
+          prop.buildings = 0;
+          this.#transfer(BANK, prop.ownerId, refund, 'houseSold', { tileId: tile.id, buildings: 0, reason: 'setBroken' });
+        }
+      });
+    }
+  }
+
   /** Buildings sell back at half value, then cash, property and cards pass to the creditor. */
   #surrenderToPlayer(p, creditor) {
     for (const [tile, prop] of this.#holdings(p.id)) {
+      prop.landmark = false; // a landmark cannot stand on a tile about to change hands
       if (prop.buildings === 0) continue;
       const refund = rules.rupees(prop.buildings * tile.houseCost * BUILDING.sellBackRatio);
       prop.buildings = 0;
@@ -1040,7 +1422,7 @@ class Game {
   /** Buildings vanish, property returns unowned and unmortgaged, cards go back to their decks. */
   #surrenderToBank(p) {
     for (const [tile, prop] of this.#holdings(p.id)) {
-      Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false });
+      Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false, landmark: false });
       this.#emit('propertyReturned', { tileId: tile.id, from: p.id });
     }
     for (const card of p.jailFreeCards) this.state.decks[card.deck].push(card.cardId);
@@ -1066,15 +1448,30 @@ class Game {
     this.#syncDebt(p);
   }
 
-  #endGame(winner) {
+  /** The game is over when one side is left: one player normally, or one team in team mode. */
+  #gameIsWon(survivors) {
+    if (this.state.settings.teams) return new Set(survivors.map((p) => p.team)).size <= 1;
+    return survivors.length <= 1;
+  }
+
+  /** `survivors` is the list of players still in; in team mode the winner is a team, not a player. */
+  #endGame(survivors) {
     const s = this.state;
+    // Any open trades (possible in team mode, between surviving teammates) are closed.
+    for (const t of [...s.trades]) this.#closeTrade(t, 'tradeCancelled', { reason: 'game over' });
     s.phase = PHASE.GAME_OVER;
     s.currentPlayerId = null;
-    s.winnerId = winner ? winner.id : null;
+    if (s.settings.teams) {
+      s.winnerTeam = survivors.length ? survivors[0].team : null;
+      // The richest survivor stands in as the named winner (for the token highlight).
+      s.winnerId = survivors.reduce((best, p) => (!best || board.netWorth(p, s.properties) > board.netWorth(best, s.properties) ? p : best), null)?.id || null;
+    } else {
+      s.winnerId = survivors.length ? survivors[0].id : null;
+    }
     s.turn = Game.#freshTurn();
     s.auction = null;
     this.#recordWorth(true);
-    this.#emit('gameOver', { winnerId: s.winnerId });
+    this.#emit('gameOver', { winnerId: s.winnerId, winnerTeam: s.winnerTeam });
   }
 
   /** Snapshot everyone's net worth (every `worthEvery` turns, thinned to MAX_WORTH_POINTS). */
@@ -1237,11 +1634,16 @@ class Game {
     const t = this.#findTrade(action.tradeId);
     if (trades.tradeProblem(this.state, t)) return null;
     const from = this.#player(t.fromId);
-    const fromFee = trades.mortgageFees(this.state, t.get.tileIds);
-    const toFee = trades.mortgageFees(this.state, t.give.tileIds);
+    const fromFee = this.#mortgageFeesFor(t.get.tileIds);
+    const toFee = this.#mortgageFeesFor(t.give.tileIds);
     if (toFee > 0 && toFee > p.cash + t.give.cash - t.get.cash) return `you can't afford the ${formatRupees(toFee)} fee on mortgaged cities`;
     if (fromFee > 0 && fromFee > from.cash - t.give.cash + t.get.cash) return `${from.name} can't afford the ${formatRupees(fromFee)} fee on mortgaged cities`;
     return null;
+  }
+
+  /** Total mortgage transfer fee for receiving these tiles, or 0 under a Trade Fair event. */
+  #mortgageFeesFor(tileIds) {
+    return this.#eventModifiers().tradeFeeWaived ? 0 : trades.mortgageFees(this.state, tileIds);
   }
 
   /** The swap is atomic: everything was checked before anything moves. */
@@ -1263,7 +1665,8 @@ class Game {
       const prop = this.state.properties[tileId];
       prop.ownerId = toId;
       this.#emit('propertyTransferred', { tileId, from: fromId, to: toId, mortgaged: prop.mortgaged, reason: 'trade' });
-      if (prop.mortgaged) this.#transfer(toId, BANK, trades.transferFee(board.getTileById(tileId)), 'mortgageFee', { tileId });
+      const fee = this.#eventModifiers().tradeFeeWaived ? 0 : trades.transferFee(board.getTileById(tileId));
+      if (prop.mortgaged && fee > 0) this.#transfer(toId, BANK, fee, 'mortgageFee', { tileId });
     }
     const giver = this.#player(fromId);
     const taker = this.#player(toId);

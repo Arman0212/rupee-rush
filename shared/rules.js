@@ -30,6 +30,13 @@ const DEFAULT_SETTINGS = Object.freeze({
   isPrivate: false, // hidden from the public room list
   allowBots: true, // the host may add computer players
   botChat: true, // computer players say a line now and then
+  // Optional game modes, all off by default.
+  worldEvents: false, // a world event sweeps the board every few rounds
+  worldEventEvery: 3, // full rounds between world events
+  bounties: false, // rivalries and bounties on dangerous players
+  bountyRentThreshold: 500, // a single rent this large places a bounty
+  landmarks: false, // a landmark can crown a fully built set
+  teams: false, // two teams; teammates share sets and don't pay each other rent
 });
 
 const SETTING_LIMITS = Object.freeze({
@@ -38,6 +45,8 @@ const SETTING_LIMITS = Object.freeze({
   maxPlayers: { min: 2, max: 8, step: 1 },
   auctionSeconds: { min: 5, max: 30, step: 1 },
   turnTimerSeconds: { min: 0, max: 300, step: 15 },
+  worldEventEvery: { min: 1, max: 10, step: 1 },
+  bountyRentThreshold: { min: 200, max: 2000, step: 100 },
 });
 
 const JAIL = Object.freeze({
@@ -53,6 +62,23 @@ const DICE = Object.freeze({
 
 const BUILDING = Object.freeze({
   sellBackRatio: 0.5,
+});
+
+/** Landmarks mode: the single monument a fully built set may crown itself with. */
+const LANDMARK = Object.freeze({
+  costMultiplier: 3, // cost = 3 × the set's house cost
+  rentMultiplier: 1.5, // landmark rent = 1.5 × hotel rent…
+  rentRounding: 5, // …rounded to the nearest ₹5
+  setBonus: 1.1, // +10% rent on the other cities in the set
+  sellBackRatio: 0.5, // selling returns half the cost and restores the hotel
+});
+
+/** Rivalries and bounties mode. */
+const BOUNTY = Object.freeze({
+  base: 200, // first trigger
+  perExtra: 100, // each further trigger
+  max: 1000,
+  thirdSetTrigger: 3, // completing this many colour sets places a bounty
 });
 
 const MORTGAGE = Object.freeze({
@@ -126,6 +152,8 @@ return {
   JAIL,
   DICE,
   BUILDING,
+  LANDMARK,
+  BOUNTY,
   MORTGAGE,
   TRADE,
   AUCTION,

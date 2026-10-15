@@ -38,6 +38,7 @@
   <script src="/shared/board.js"></script>
   <script src="/shared/cards.js"></script>
   <script src="/shared/rules.js"></script>
+  <script src="/shared/events.js"></script>
   <script src="/socket.io/socket.io.min.js"></script>
   <script type="module" src="/js/main.js"></script>
 </head>
@@ -120,6 +121,7 @@
 
       <!-- Centre: the board -->
       <div class="room-centre">
+        <div id="world-banner" class="world-banner" hidden aria-live="polite"></div>
         <div id="game-banners" class="banners"></div>
         <div class="board-fit">
           <div id="board" class="board" role="group" aria-label="Game board">
@@ -163,6 +165,7 @@
       <aside class="pane pane-right" id="pane-right" aria-label="Players and game">
         <section class="card pane-sec" id="sec-players" data-sec="players" aria-labelledby="players-title">
           <h2 id="players-title" class="card-title">Players <span id="players-count" class="muted"></span></h2>
+          <div id="team-panel" class="team-panel" hidden></div>
           <ul id="player-list" class="player-list"></ul>
           <div class="add-bot lobby-only" id="add-bot" hidden>
             <label class="visually-hidden" for="add-bot-difficulty">Bot difficulty</label>
@@ -172,6 +175,10 @@
               <option value="hard">Hard</option>
             </select>
             <button id="add-bot-btn" class="btn btn-secondary btn-sm" type="button">Add bot</button>
+          </div>
+          <div class="add-bot lobby-only" id="team-tools" hidden>
+            <span class="muted" style="flex:1">Two teams, split evenly.</span>
+            <button id="shuffle-teams-btn" class="btn btn-secondary btn-sm" type="button">Shuffle teams</button>
           </div>
         </section>
         <div class="subtabs game-only" role="tablist" aria-label="My game">
@@ -192,6 +199,10 @@
           <section class="card settings-card" aria-labelledby="settings-rules-title">
             <h2 id="settings-rules-title" class="card-title">Gameplay rules</h2>
             <div id="settings-rules" class="settings"></div>
+          </section>
+          <section class="card settings-card" aria-labelledby="settings-modes-title">
+            <h2 id="settings-modes-title" class="card-title">Game modes <span class="muted">optional</span></h2>
+            <div id="settings-modes" class="settings"></div>
           </section>
         </div>
       </aside>

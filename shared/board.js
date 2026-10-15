@@ -35,16 +35,20 @@ const TILE = Object.freeze({
  * from the --set-<key> custom properties in css/tokens.css.
  */
 const country = (name, flag) => Object.freeze({ name, flag });
+/** `landmark` is the monument a fully built set can crown itself with in landmarks mode. */
 const COLOR_GROUPS = Object.freeze({
-  brown:     Object.freeze({ name: 'Brown',      color: '#8d5a3b', houseCost: 50,  country: country('Brazil', '🇧🇷') }),
-  lightBlue: Object.freeze({ name: 'Light blue', color: '#7cc6e8', houseCost: 50,  country: country('Israel', '🇮🇱') }),
-  pink:      Object.freeze({ name: 'Pink',       color: '#d9529b', houseCost: 100, country: country('Italy', '🇮🇹') }),
-  orange:    Object.freeze({ name: 'Orange',     color: '#f28c28', houseCost: 100, country: country('Germany', '🇩🇪') }),
-  red:       Object.freeze({ name: 'Red',        color: '#d93a3a', houseCost: 150, country: country('China', '🇨🇳') }),
-  yellow:    Object.freeze({ name: 'Yellow',     color: '#f2c94c', houseCost: 150, country: country('France', '🇫🇷') }),
-  green:     Object.freeze({ name: 'Green',      color: '#2e9e5b', houseCost: 200, country: country('United Kingdom', '🇬🇧') }),
-  darkBlue:  Object.freeze({ name: 'Dark blue',  color: '#2f4aa8', houseCost: 200, country: country('United States', '🇺🇸') }),
+  brown:     Object.freeze({ name: 'Brown',      color: '#8d5a3b', houseCost: 50,  country: country('Brazil', '🇧🇷'),         landmark: 'Christ the Redeemer' }),
+  lightBlue: Object.freeze({ name: 'Light blue', color: '#7cc6e8', houseCost: 50,  country: country('Israel', '🇮🇱'),         landmark: 'The Western Wall' }),
+  pink:      Object.freeze({ name: 'Pink',       color: '#d9529b', houseCost: 100, country: country('Italy', '🇮🇹'),          landmark: 'The Colosseum' }),
+  orange:    Object.freeze({ name: 'Orange',     color: '#f28c28', houseCost: 100, country: country('Germany', '🇩🇪'),         landmark: 'Brandenburg Gate' }),
+  red:       Object.freeze({ name: 'Red',        color: '#d93a3a', houseCost: 150, country: country('China', '🇨🇳'),          landmark: 'The Great Wall' }),
+  yellow:    Object.freeze({ name: 'Yellow',     color: '#f2c94c', houseCost: 150, country: country('France', '🇫🇷'),         landmark: 'The Eiffel Tower' }),
+  green:     Object.freeze({ name: 'Green',      color: '#2e9e5b', houseCost: 200, country: country('United Kingdom', '🇬🇧'), landmark: 'Big Ben' }),
+  darkBlue:  Object.freeze({ name: 'Dark blue',  color: '#2f4aa8', houseCost: 200, country: country('United States', '🇺🇸'),   landmark: 'Statue of Liberty' }),
 });
+
+/** Net-worth value of a landmark, in multiples of the set's house cost (matches rules.LANDMARK.costMultiplier). */
+const LANDMARK_WORTH = 3;
 
 /** Rent by number of airports owned by the same player (1..4). */
 const AIRPORT_RENT = Object.freeze([25, 50, 100, 200]);
@@ -228,6 +232,7 @@ function netWorth(player, properties) {
     if (!prop || prop.ownerId !== player.id) continue;
     worth += prop.mortgaged ? tile.price - tile.mortgageValue : tile.price;
     worth += prop.buildings * (tile.houseCost || 0);
+    if (prop.landmark) worth += LANDMARK_WORTH * (tile.houseCost || 0);
   }
   return worth;
 }

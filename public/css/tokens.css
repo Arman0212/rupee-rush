@@ -82,6 +82,10 @@
   --surprise-accent: #ff9d4d;
   --treasure-accent: #4cd4ec;
 
+  /* Team mode */
+  --team-a: #ff8a5c; --team-a-ink: #2a0f04;
+  --team-b: #5cc8ff; --team-b-ink: #04202a;
+
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 18px 44px rgba(0, 0, 0, 0.55);
@@ -184,6 +188,9 @@
 
   --surprise-accent: #c4570d;
   --treasure-accent: #0b7f96;
+
+  --team-a: #e05a28; --team-a-ink: #ffffff;
+  --team-b: #1f7fb8; --team-b-ink: #ffffff;
 
   --shadow-sm: 0 1px 3px rgba(30, 25, 80, 0.08);
   --shadow: 0 8px 22px rgba(30, 25, 80, 0.08);

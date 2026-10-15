@@ -619,3 +619,56 @@ kbd, .kbd-hint {
 .worth-line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .chart-legend { list-style: none; margin: 6px 0 var(--space-2); padding: 0; display: flex; flex-wrap: wrap; gap: 4px var(--space-3); font-size: var(--text-xs); font-weight: 700; }
 .stats-facts { margin-top: var(--space-2); }
+
+/* ------- Game modes ------------------------------------------------------- */
+
+/* World event banner: slim, above the board. */
+.world-banner {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-bottom: var(--space-2); padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius); font-size: var(--text-sm);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 22%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.world-banner[hidden] { display: none; }
+.world-icon { font-size: 1.25rem; flex: none; }
+.world-name { font-weight: 800; flex: none; }
+.world-text { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.world-round { margin-left: auto; flex: none; font-size: var(--text-xs); font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* Bounty badge on a player row / token. */
+.bounty-badge { display: inline-flex; align-items: center; gap: 3px; background: var(--warn-bg); color: var(--warn-ink); border-radius: 999px; padding: 1px 7px; font-size: 11px; font-weight: 800; }
+.token-bounty { position: absolute; top: -6px; right: -6px; font-size: 12px; filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+
+/* Rivalry line in the players header. */
+.rivalry { font-size: var(--text-xs); color: var(--ink-faint); font-weight: 700; }
+
+/* Team rings and the team panel. */
+.avatar.team-A { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--team-a); }
+.avatar.team-B { box-shadow: 0 0 0 2px var(--surface-2), 0 0 0 4px var(--team-b); }
+.team-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 7px; font-size: 11px; font-weight: 800; }
+.team-chip-A { background: color-mix(in srgb, var(--team-a) 28%, transparent); color: var(--team-a-ink); }
+.team-chip-B { background: color-mix(in srgb, var(--team-b) 28%, transparent); color: var(--team-b-ink); }
+.team-toggle { display: inline-flex; gap: 2px; }
+.team-toggle button { width: 26px; height: 24px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 7px; font-weight: 800; font-size: 11px; color: var(--ink-soft); cursor: pointer; }
+.team-toggle button[aria-pressed="true"].for-A { background: var(--team-a); color: var(--team-a-ink); border-color: transparent; }
+.team-toggle button[aria-pressed="true"].for-B { background: var(--team-b); color: var(--team-b-ink); border-color: transparent; }
+.team-panel { display: grid; gap: var(--space-2); }
+.team-panel-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: 12px; background: var(--surface-2); }
+.team-panel-row.team-A { border-left: 4px solid var(--team-a); }
+.team-panel-row.team-B { border-left: 4px solid var(--team-b); }
+.team-worth { font: 800 1.05rem/1 var(--font-display); }
+
+/* Landmark marker on a tile. */
+.tile-landmark { position: absolute; top: 2px; left: 2px; font-size: 13px; z-index: 3; filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+
+/* Team ring and bounty marker on board tokens. */
+.token.team-A { outline: 3px solid var(--team-a); outline-offset: 1px; }
+.token.team-B { outline: 3px solid var(--team-b); outline-offset: 1px; }
+.token { position: relative; }
+.token > .token-bounty { position: absolute; top: -8px; right: -8px; font-size: 11px; pointer-events: none; }
+
+/* Send-to-teammate dialog. */
+.send-field { display: grid; gap: 4px; margin-bottom: var(--space-3); }
+.send-tiles { display: grid; gap: 4px; margin-bottom: var(--space-3); max-height: 180px; overflow-y: auto; }
+.send-tile { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; }

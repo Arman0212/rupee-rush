@@ -159,7 +159,7 @@ export function buildGrid(boardNode, { onSelect }) {
       if (!isOwnable(tile)) continue;
       const prop = publicState.properties[id];
       const owner = prop.ownerId ? playersById.get(prop.ownerId) : null;
-      const key = `${prop.ownerId}|${prop.buildings}|${prop.mortgaged}|${owner ? owner.color : ''}`;
+      const key = `${prop.ownerId}|${prop.buildings}|${prop.mortgaged}|${prop.landmark}|${owner ? owner.color : ''}`;
       if (key === entry.last) continue;
       entry.last = key;
       button.classList.toggle('owned', Boolean(owner));
@@ -167,6 +167,10 @@ export function buildGrid(boardNode, { onSelect }) {
       if (owner) button.style.setProperty('--owner', owner.color);
       else button.style.removeProperty('--owner');
       if (entry.buildings) renderBuildings(entry.buildings, prop.buildings);
+      // Landmark marker (gold monument) on the tile.
+      let mark = button.querySelector('.tile-landmark');
+      if (prop.landmark && !mark) { mark = el('span', { className: 'tile-landmark', text: '🏛️', attrs: { 'aria-hidden': 'true' } }); button.querySelector('.tile-inner').append(mark); }
+      else if (!prop.landmark && mark) mark.remove();
       button.setAttribute('aria-label', describe(tile, prop, owner));
     }
     // Corner notes that depend on settings / the jackpot.

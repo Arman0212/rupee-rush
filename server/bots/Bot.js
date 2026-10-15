@@ -50,6 +50,16 @@ function isAllowed(action, legalActions, state, me) {
     if (state.trades.filter((t) => t.fromId === me).length >= TRADE.maxOpenPerPlayer) return false;
     return !tradeProblem(state, { fromId: me, toId: action.toId, give: action.give, get: action.get });
   }
+  if (action.type === 'sendToTeammate') {
+    // Bots only ever send cash to a living teammate, within their means.
+    if (!state.settings.teams) return false;
+    const player = state.players.find((p) => p.id === me);
+    const to = state.players.find((p) => p.id === action.toId);
+    if (!player || !to || to.bankrupt || player.cash < 0) return false;
+    if (!player.team || player.team !== to.team) return false;
+    const cash = action.give && action.give.cash;
+    return Number.isInteger(cash) && cash > 0 && cash <= player.cash && (!action.give.tileIds || !action.give.tileIds.length);
+  }
   return legalActions.some((a) => a.type === action.type && a.tileId === action.tileId && a.tradeId === action.tradeId && a.amount === action.amount);
 }
 
@@ -130,10 +140,24 @@ class Bot {
 
     switch (state.phase) {
       case 'buyDecision': return this.#manage(ctx, { beforeBuy: true }) || this.#buyDecision(ctx);
-      case 'awaitingRoll': return this.#jail(ctx) || this.#manage(ctx) || this.#proposeTrade(ctx) || find(legalActions, 'roll');
-      case 'awaitingEnd': return this.#manage(ctx) || this.#proposeTrade(ctx) || find(legalActions, 'endTurn');
+      case 'awaitingRoll': return this.#jail(ctx) || this.#manage(ctx) || this.#supportTeammate(ctx) || this.#proposeTrade(ctx) || find(legalActions, 'roll');
+      case 'awaitingEnd': return this.#manage(ctx) || this.#supportTeammate(ctx) || this.#proposeTrade(ctx) || find(legalActions, 'endTurn');
       default: return null;
     }
+  }
+
+  /** Team mode: top up a teammate in debt with spare cash (keeping our own reserve). */
+  #supportTeammate(ctx) {
+    const { state, me, player, p } = ctx;
+    if (!state.settings.teams || !player.team) return null;
+    const reserve = v.reserveFor(state, me, p);
+    const spare = player.cash - reserve;
+    if (spare <= 0) return null;
+    const mate = state.players.find((o) => o.id !== me && !o.bankrupt && o.team === player.team && o.cash < 0);
+    if (!mate) return null;
+    const cash = Math.min(spare, mate.debt.amount);
+    if (cash <= 0) return null;
+    return { type: 'sendToTeammate', toId: mate.id, give: { tileIds: [], cash, jailCards: [] } };
   }
 
   #warn(msg) {
@@ -259,7 +283,12 @@ class Bot {
       if (score > bestScore) { bestScore = score; best = a; }
     }
     if (best) return best;
-    // 3. Unmortgage anything else, once there's plenty of cash.
+    // 3. A landmark crowns a fully hotelled set, when there's cash to spare.
+    for (const a of ofType(legal, 'buildLandmark')) {
+      const tile = getTileById(a.tileId);
+      if (player.cash - 3 * tile.houseCost >= reserve) return a;
+    }
+    // 4. Unmortgage anything else, once there's plenty of cash.
     for (const a of ofType(legal, 'unmortgage')) {
       const tile = getTileById(a.tileId);
       if (player.cash - unmortgageCost(tile) >= reserve * p.unmortgageSlack) return a;
@@ -422,6 +451,7 @@ class Bot {
       if (!ownerId || missing.some((id) => state.properties[id].ownerId !== ownerId)) continue;
       const owner = state.players.find((o) => o.id === ownerId);
       if (!owner || owner.bankrupt || missing.some((id) => tileProblem(state, ownerId, id))) continue;
+      if (state.settings.teams && player.team && owner.team === player.team) continue; // teammates already share sets
       const key = `${ownerId}:${missing.join(',')}`;
       const askedAt = this.memory.asked.get(key);
       if (askedAt !== undefined && state.turnNumber - askedAt < p.retryAskTurns) continue;

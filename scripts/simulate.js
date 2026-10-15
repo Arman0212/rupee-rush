@@ -30,6 +30,7 @@ const { tradeProblem, tileProblem, mortgageFees } = require('../server/game/trad
 const { AUCTION, TRADE } = require('../shared/rules');
 const { createRng, randomInt } = require('../server/game/rng');
 const { BOARD, MAX_BUILDINGS, TILE, JAIL_INDEX, groupMembers, getTileById } = require('../shared/board');
+const { getEvent } = require('../shared/events');
 const { DECKS } = require('../shared/cards');
 const { Bot } = require('../server/bots/Bot');
 
@@ -44,7 +45,8 @@ const MAX_ACTIONS_PER_GAME = 200000;
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const opts = { games: 2000, seed: 1, players: null, maxTurns: 2000, workers: os.availableParallelism(), trades: true, auctions: true, bots: true };
+  const opts = { games: 2000, seed: 1, players: null, maxTurns: 2000, workers: os.availableParallelism(), trades: true, auctions: true, bots: true,
+    worldEvents: false, bounties: false, landmarks: false, teams: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => Number(argv[++i]);
@@ -56,6 +58,11 @@ function parseArgs(argv) {
     else if (arg === '--no-trades') opts.trades = false;
     else if (arg === '--no-auctions') opts.auctions = false;
     else if (arg === '--no-bots') opts.bots = false;
+    else if (arg === '--world-events') opts.worldEvents = true;
+    else if (arg === '--bounties') opts.bounties = true;
+    else if (arg === '--landmarks') opts.landmarks = true;
+    else if (arg === '--teams') opts.teams = true;
+    else if (arg === '--chaos') { opts.worldEvents = opts.bounties = opts.landmarks = opts.teams = true; }
     else if (/^\d+$/.test(arg)) opts.games = Number(arg);
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -70,10 +77,11 @@ function parseArgs(argv) {
 const WEIGHTS = {
   roll: 10, endTurn: 10, buy: 40, decline: 1, build: 40, unmortgage: 2,
   payJailFine: 3, useJailCard: 4, mortgage: 0.05, sellHouse: 0.05, bankrupt: 0,
+  buildLandmark: 25, sellLandmark: 0.02,
 };
 
 /** A player in debt raises money; they only give up when nothing else is left (or rarely, by choice). */
-const DEBT_WEIGHTS = { sellHouse: 5, mortgage: 5, bankrupt: 0.1 };
+const DEBT_WEIGHTS = { sellHouse: 5, mortgage: 5, sellLandmark: 6, bankrupt: 0.1 };
 
 /**
  * Trading isn't built yet, so random buying almost never completes a colour
@@ -247,8 +255,13 @@ function checkBuildings(state) {
     const props = groupMembers(group).map((i) => state.properties[BOARD[i].id]);
     const counts = props.map((p) => p.buildings);
     if (Math.max(...counts) === 0) continue;
-    const owner = props[0].ownerId;
-    assert(owner && props.every((p) => p.ownerId === owner), `${group} has buildings but is not one owner's full set`);
+    if (state.settings.teams) {
+      const teams = new Set(props.map((p) => { const pl = state.players.find((x) => x.id === p.ownerId); return pl ? pl.team : null; }));
+      assert(props.every((p) => p.ownerId) && teams.size === 1 && !teams.has(null), `${group} is built but not one team's full set`);
+    } else {
+      const owner = props[0].ownerId;
+      assert(owner && props.every((p) => p.ownerId === owner), `${group} has buildings but is not one owner's full set`);
+    }
     assert(props.every((p) => !p.mortgaged), `${group} has buildings and a mortgaged tile`);
     assert(Math.max(...counts) - Math.min(...counts) <= 1, `${group} is built unevenly: ${counts}`);
   }
@@ -310,7 +323,13 @@ function checkUniqueOwnership(state) {
 function checkTurn(state, game) {
   const live = state.players.filter((p) => !p.bankrupt);
   if (state.phase === PHASE.GAME_OVER) {
-    assert(live.length === 1 && state.winnerId === live[0].id, 'game over without exactly one survivor as winner');
+    if (state.settings.teams) {
+      assert(live.length >= 1 && new Set(live.map((p) => p.team)).size === 1, 'game over with more than one team left');
+      assert(state.winnerTeam === live[0].team, 'winnerTeam does not match the surviving team');
+      assert(live.some((p) => p.id === state.winnerId), 'winnerId is not a surviving player');
+    } else {
+      assert(live.length === 1 && state.winnerId === live[0].id, 'game over without exactly one survivor as winner');
+    }
     assert(state.trades.length === 0, 'open trades after game over');
     return;
   }
@@ -341,9 +360,28 @@ function roundTrip(game) {
   return restored;
 }
 
+/** Mode invariants: at most one world event, landmarks only on full hotel sets, one per set. */
+function checkModes(state) {
+  if (state.settings.worldEvents) {
+    const id = state.world.activeEventId;
+    assert(id === null || Boolean(getEvent(id)), `unknown active world event ${id}`);
+  }
+  const groupsWithLandmark = new Set();
+  for (const tile of BOARD) {
+    const prop = state.properties[tile.id];
+    if (!prop || !prop.landmark) continue;
+    assert(state.settings.landmarks, `landmark on ${tile.id} without the mode on`);
+    assert(tile.type === TILE.CITY, `landmark on non-city ${tile.id}`);
+    assert(!groupsWithLandmark.has(tile.group), `two landmarks in ${tile.group}`);
+    groupsWithLandmark.add(tile.group);
+    assert(groupMembers(tile.group).every((i) => state.properties[BOARD[i].id].buildings === MAX_BUILDINGS), `landmark in ${tile.group} without a full hotel set`);
+  }
+}
+
 function checkAll(game, ledger) {
   const state = game.state;
   checkMoney(state, ledger);
+  checkModes(state);
   checkBuildings(state);
   checkOwnership(state);
   checkTurn(state, game);
@@ -361,9 +399,16 @@ function checkAll(game, ledger) {
 function playGame(seed, opts) {
   const botRng = createRng(seed ^ 0x9e3779b9);
   const drawn = 2 + randomInt(botRng, 5); // always drawn, so --players doesn't shift the bot rng
-  const playerCount = opts.players || drawn;
+  let playerCount = opts.players || drawn;
+  // Team mode needs an even 4 or 6.
+  if (opts.teams && playerCount !== 4 && playerCount !== 6) playerCount = 4;
+  const teamOf = (i) => (i % 2 === 0 ? 'A' : 'B');
   let clock = 0;
-  let game = new Game({ seed, now: () => ++clock, settings: { auctions: opts.auctions } });
+  const settings = {
+    auctions: opts.auctions,
+    worldEvents: opts.worldEvents, bounties: opts.bounties, landmarks: opts.landmarks, teams: opts.teams,
+  };
+  let game = new Game({ seed, now: () => ++clock, settings });
   const ledger = { bankOut: 0, bankIn: 0 };
   const caps = new Map(); // auction caps per bot
   const tally = { auctions: 0, auctionsSold: 0, tradesProposed: 0, tradesAccepted: 0, botMoves: 0 };
@@ -391,6 +436,10 @@ function playGame(seed, opts) {
     if (!result.ok) throw new InvariantError(`legal action rejected: ${result.error}`);
     for (const e of result.events) {
       applyToLedger(ledger, e);
+      if (opts.teams && e.type === 'rentPaid') {
+        const team = (id) => { const pl = game.state.players.find((p) => p.id === id); return pl ? pl.team : null; };
+        assert(team(e.from) !== team(e.to), 'teammates paid each other rent');
+      }
       if (e.type === 'auctionStarted') tally.auctions++;
       if (e.type === 'auctionClosed' && e.winnerId) tally.auctionsSold++;
       if (e.type === 'tradeProposed') tally.tradesProposed++;
@@ -405,7 +454,7 @@ function playGame(seed, opts) {
   };
 
   try {
-    for (let i = 0; i < playerCount; i++) record('-', { type: 'addPlayer' }, game.addPlayer({ id: `bot${i}`, name: `Bot ${i}` }));
+    for (let i = 0; i < playerCount; i++) record('-', { type: 'addPlayer' }, game.addPlayer({ id: `bot${i}`, name: `Bot ${i}`, team: opts.teams ? teamOf(i) : undefined }));
     record('-', { type: 'start' }, game.start());
     const seats = game.state.players.map((p) => p.id);
     game = checkAll(game, ledger);
