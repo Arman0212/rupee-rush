@@ -17,7 +17,11 @@
 const GAME_NAME = 'Monopoly';
 const GAME_TAGLINE = 'Buy, build, bid and trade your way around the world.';
 
+/** The lobby's single mode choice. Maps to the feature flags below. */
+const MODES = Object.freeze(['classic', 'chaos']);
+
 const DEFAULT_SETTINGS = Object.freeze({
+  mode: 'classic', // 'classic' | 'chaos'; the lobby sets the feature flags from this
   startingCash: 1500,
   goSalary: 200,
   maxPlayers: 6,
@@ -33,10 +37,12 @@ const DEFAULT_SETTINGS = Object.freeze({
   // Optional game modes, all off by default.
   worldEvents: false, // a world event sweeps the board every few rounds
   worldEventEvery: 3, // full rounds between world events
+  chaosEvents: false, // include the wilder chaos-only world events
   bounties: false, // rivalries and bounties on dangerous players
   bountyRentThreshold: 500, // a single rent this large places a bounty
   landmarks: false, // a landmark can crown a fully built set
   teams: false, // two teams; teammates share sets and don't pay each other rent
+  startingCities: 0, // cities dealt free to each player at the start (Chaos opening)
 });
 
 const SETTING_LIMITS = Object.freeze({
@@ -47,6 +53,7 @@ const SETTING_LIMITS = Object.freeze({
   turnTimerSeconds: { min: 0, max: 300, step: 15 },
   worldEventEvery: { min: 1, max: 10, step: 1 },
   bountyRentThreshold: { min: 200, max: 2000, step: 100 },
+  startingCities: { min: 0, max: 4, step: 1 },
 });
 
 const JAIL = Object.freeze({
@@ -139,13 +146,38 @@ function sanitizeSettings(input = {}) {
       if (!Number.isFinite(n) || !lim) continue;
       const stepped = Math.round(n / lim.step) * lim.step;
       out[key] = Math.min(lim.max, Math.max(lim.min, stepped));
+    } else if (key === 'mode') {
+      if (MODES.includes(val)) out[key] = val;
     }
   }
   return out;
 }
 
+/**
+ * The feature flags for a mode. Classic turns the four mode features off;
+ * Chaos turns them on with the chaos tuning. `teams` is decided by the lobby
+ * from the player count (4 or 6 → teams; otherwise free-for-all), so it is not
+ * set here. The engine always reads the individual flags, never `mode`, so
+ * tests and scripts can switch features on one at a time.
+ */
+function modeSettings(mode) {
+  if (mode === 'chaos') {
+    return {
+      worldEvents: true, worldEventEvery: 2, chaosEvents: true,
+      bounties: true, bountyRentThreshold: 300,
+      landmarks: true, auctions: true, auctionSeconds: 8,
+      vacationJackpot: true, startingCash: 2000, startingCities: 2,
+    };
+  }
+  return {
+    worldEvents: false, chaosEvents: false, bounties: false,
+    landmarks: false, teams: false, startingCities: 0,
+  };
+}
+
 return {
   GAME_NAME,
+  MODES,
   GAME_TAGLINE,
   DEFAULT_SETTINGS,
   SETTING_LIMITS,
@@ -163,5 +195,6 @@ return {
   unmortgageCost,
   formatRupees,
   sanitizeSettings,
+  modeSettings,
 };
 });

@@ -19,9 +19,10 @@ const os = require('node:os');
 const { Worker, isMainThread, parentPort } = require('node:worker_threads');
 const { playBotGame } = require('../server/bots/arena');
 const { createRng, randomInt } = require('../server/game/rng');
+const { modeSettings } = require('../shared/rules');
 
 function parseArgs(argv) {
-  const opts = { games: 1000, seed: 1, lineup: ['random', 'easy', 'medium', 'hard'], maxTurns: 1000, workers: os.availableParallelism(), settings: {} };
+  const opts = { games: 1000, seed: 1, lineup: ['random', 'easy', 'medium', 'hard'], maxTurns: 1000, workers: os.availableParallelism(), settings: {}, mode: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => argv[++i];
@@ -34,7 +35,9 @@ function parseArgs(argv) {
     else if (arg === '--bounties') opts.settings.bounties = true;
     else if (arg === '--landmarks') opts.settings.landmarks = true;
     else if (arg === '--teams') opts.settings.teams = true;
-    else if (arg === '--chaos') Object.assign(opts.settings, { worldEvents: true, bounties: true, landmarks: true, teams: true });
+    else if (arg === '--mode') { opts.mode = argv[++i]; }
+    else if (arg === '--chaos') { opts.mode = 'chaos'; }
+    else if (arg === '--classic') { opts.mode = 'classic'; }
     else if (/^\d+$/.test(arg)) opts.games = Number(arg);
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -158,9 +161,12 @@ function printTable(summary) {
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const started = Date.now();
-  const jobs = Array.from({ length: opts.games }, (_, i) => ({ seed: (opts.seed + i) >>> 0, lineup: opts.lineup, maxTurns: opts.maxTurns, settings: opts.settings }));
+  let settings = opts.settings;
+  if (opts.mode === 'chaos') settings = { ...modeSettings('chaos'), mode: 'chaos', teams: opts.lineup.length === 4 || opts.lineup.length === 6 };
+  else if (opts.mode === 'classic') settings = { mode: 'classic' };
+  const jobs = Array.from({ length: opts.games }, (_, i) => ({ seed: (opts.seed + i) >>> 0, lineup: opts.lineup, maxTurns: opts.maxTurns, settings }));
   const results = await runGames(jobs, opts.workers);
-  console.log(`Tournament: ${opts.games} games, lineup ${opts.lineup.join(', ')} (seats shuffled), cap ${opts.maxTurns} turns, ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
+  console.log(`Tournament: ${opts.games} games${opts.mode ? ` [${opts.mode}]` : ''}, lineup ${opts.lineup.join(', ')} (seats shuffled), cap ${opts.maxTurns} turns, ${((Date.now() - started) / 1000).toFixed(1)}s\n`);
   printTable(summarise(results));
 }
 

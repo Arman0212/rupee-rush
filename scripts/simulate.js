@@ -27,7 +27,7 @@ const os = require('node:os');
 const { Worker, isMainThread, parentPort, workerData } = require('node:worker_threads');
 const { Game, PHASE, BANK } = require('../server/game/Game');
 const { tradeProblem, tileProblem, mortgageFees } = require('../server/game/trades');
-const { AUCTION, TRADE } = require('../shared/rules');
+const { AUCTION, TRADE, modeSettings } = require('../shared/rules');
 const { createRng, randomInt } = require('../server/game/rng');
 const { BOARD, MAX_BUILDINGS, TILE, JAIL_INDEX, groupMembers, getTileById } = require('../shared/board');
 const { getEvent } = require('../shared/events');
@@ -46,7 +46,7 @@ const MAX_ACTIONS_PER_GAME = 200000;
 
 function parseArgs(argv) {
   const opts = { games: 2000, seed: 1, players: null, maxTurns: 2000, workers: os.availableParallelism(), trades: true, auctions: true, bots: true,
-    worldEvents: false, bounties: false, landmarks: false, teams: false };
+    worldEvents: false, bounties: false, landmarks: false, teams: false, mode: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => Number(argv[++i]);
@@ -62,7 +62,9 @@ function parseArgs(argv) {
     else if (arg === '--bounties') opts.bounties = true;
     else if (arg === '--landmarks') opts.landmarks = true;
     else if (arg === '--teams') opts.teams = true;
-    else if (arg === '--chaos') { opts.worldEvents = opts.bounties = opts.landmarks = opts.teams = true; }
+    else if (arg === '--mode') opts.mode = argv[++i];
+    else if (arg === '--chaos') opts.mode = 'chaos';
+    else if (arg === '--classic') opts.mode = 'classic';
     else if (/^\d+$/.test(arg)) opts.games = Number(arg);
     else throw new Error(`unknown argument ${arg}`);
   }
@@ -401,13 +403,22 @@ function playGame(seed, opts) {
   const drawn = 2 + randomInt(botRng, 5); // always drawn, so --players doesn't shift the bot rng
   let playerCount = opts.players || drawn;
   // Team mode needs an even 4 or 6.
-  if (opts.teams && playerCount !== 4 && playerCount !== 6) playerCount = 4;
+  const chaos = opts.mode === 'chaos';
+  let settings;
+  if (chaos) {
+    settings = { ...modeSettings('chaos'), mode: 'chaos' };
+    // Chaos uses teams only with 4 or 6 players; otherwise it's a free-for-all.
+    if (playerCount !== 4 && playerCount !== 6) playerCount = randomInt(botRng, 2) === 0 ? 4 : 6;
+    settings.teams = true;
+  } else {
+    if (opts.teams && playerCount !== 4 && playerCount !== 6) playerCount = 4;
+    settings = {
+      mode: 'classic', auctions: opts.auctions,
+      worldEvents: opts.worldEvents, bounties: opts.bounties, landmarks: opts.landmarks, teams: opts.teams,
+    };
+  }
   const teamOf = (i) => (i % 2 === 0 ? 'A' : 'B');
   let clock = 0;
-  const settings = {
-    auctions: opts.auctions,
-    worldEvents: opts.worldEvents, bounties: opts.bounties, landmarks: opts.landmarks, teams: opts.teams,
-  };
   let game = new Game({ seed, now: () => ++clock, settings });
   const ledger = { bankOut: 0, bankIn: 0 };
   const caps = new Map(); // auction caps per bot
@@ -454,7 +465,7 @@ function playGame(seed, opts) {
   };
 
   try {
-    for (let i = 0; i < playerCount; i++) record('-', { type: 'addPlayer' }, game.addPlayer({ id: `bot${i}`, name: `Bot ${i}`, team: opts.teams ? teamOf(i) : undefined }));
+    for (let i = 0; i < playerCount; i++) record('-', { type: 'addPlayer' }, game.addPlayer({ id: `bot${i}`, name: `Bot ${i}`, team: settings.teams ? teamOf(i) : undefined }));
     record('-', { type: 'start' }, game.start());
     const seats = game.state.players.map((p) => p.id);
     game = checkAll(game, ledger);

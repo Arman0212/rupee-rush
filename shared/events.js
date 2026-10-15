@@ -29,12 +29,20 @@
  *     landBonus { groups, amount }   landing on one of these sets' cities pays
  *                                    the lander `amount` from the bank
  *
- *   onStart    one bank payment applied the moment the event is drawn:
+ *   onStart    a one-off applied the moment the event is drawn:
  *     { kind: 'eachPayFraction', fraction }  each player pays that share of
  *                                            their cash to the bank (never into debt)
  *     { kind: 'eachCollect', amount }        the bank pays each player
  *     { kind: 'eachPerBuilding', perHouse, perHotel }  each player pays the
  *                                            bank per building (never into debt)
+ *     { kind: 'freeFromJail' }               everyone in jail walks free
+ *     { kind: 'propertyShuffle' }            two unbuilt, unmortgaged tiles of
+ *                                            different owners swap owners
+ *
+ *   rentReversal (modifier)  the owner pays the lander half the rent instead
+ *
+ * `chaosOnly: true` keeps an event out of the normal pool; it is drawn only
+ * when the room has chaos events switched on.
  *
  * Country → colour group: Brazil brown, Israel lightBlue, Italy pink,
  * Germany orange, China red, France yellow, UK green, USA darkBlue.
@@ -94,9 +102,14 @@ const EVENTS = Object.freeze([
     modifiers: { rentMultiplier: { all: true, factor: 1.5 } },
   },
   {
-    id: 'fuel-crisis', name: 'Fuel Crisis', icon: '⛽',
-    text: 'Energy shortage: utilities charge double.',
+    id: 'utility-surge', name: 'Utility Surge', icon: '⚡',
+    text: 'Grid under strain: utilities charge double.',
     modifiers: { utilityRentFactor: 2 },
+  },
+  {
+    id: 'jailbreak', name: 'Jailbreak', icon: '🔓',
+    text: 'The gates swing open: everyone in jail walks free.',
+    onStart: { kind: 'freeFromJail' },
   },
   {
     id: 'stimulus', name: 'Stimulus Cheque', icon: '💸',
@@ -122,6 +135,22 @@ const EVENTS = Object.freeze([
     id: 'homecoming', name: 'Homecoming', icon: '🎉',
     text: 'Everyone heads home: rent is doubled on all Brazil and Israel cities.',
     modifiers: { rentMultiplier: { groups: ['brown', 'lightBlue'], factor: 2 } },
+  },
+  // Chaos-only events: wilder effects, drawn only when chaos events are on.
+  {
+    id: 'rent-reversal', name: 'Rent Reversal', icon: '🔄', chaosOnly: true,
+    text: 'Upside-down economy: the owner pays the lander half the rent.',
+    modifiers: { rentReversal: true },
+  },
+  {
+    id: 'property-shuffle', name: 'Property Shuffle', icon: '🔀', chaosOnly: true,
+    text: 'Deeds in the air: two cities swap owners at random.',
+    onStart: { kind: 'propertyShuffle' },
+  },
+  {
+    id: 'boom-and-bust', name: 'Boom & Bust', icon: '🎢', chaosOnly: true,
+    text: 'Wild swings: all rent is tripled this round.',
+    modifiers: { rentMultiplier: { all: true, factor: 3 } },
   },
 ]);
 

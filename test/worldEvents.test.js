@@ -48,8 +48,8 @@ describe('world events: rent modifiers', () => {
     assert.equal(findEvent(landOn(rush, 'tlv-airport', 0), 'rentPaid').amount, 50); // 25 × 2
   });
 
-  test('Fuel Crisis doubles utility rent', () => {
-    const game = withEvent('fuel-crisis');
+  test('Utility Surge doubles utility rent', () => {
+    const game = withEvent('utility-surge');
     own(game, 'p2', 'electric-company');
     const events = landOn(game, 'electric-company', 6);
     const total = findEvent(events, 'diceRolled').total;
@@ -133,8 +133,10 @@ describe('world events: trade fee waiver', () => {
 describe('world events: one-off effects on start', () => {
   /** Force the next drawn event to be `eventId`, then advance one turn to draw it. */
   function drawNext(game, eventId) {
-    const idx = EVENTS.findIndex((e) => e.id === eventId);
-    game.rng = { next: () => (idx + 0.5) / EVENTS.length };
+    // The draw pool excludes chaos-only events unless chaosEvents is on.
+    const pool = EVENTS.filter((e) => game.state.settings.chaosEvents || !e.chaosOnly);
+    const idx = pool.findIndex((e) => e.id === eventId);
+    game.rng = { next: () => (idx + 0.5) / pool.length };
     const w = game.state.world;
     w.roundsElapsed = w.nextEventAtRound; // due now
     const id = game.state.currentPlayerId;
@@ -170,6 +172,56 @@ describe('world events: one-off effects on start', () => {
   });
 });
 
+describe('world events: new and chaos-only events', () => {
+  /** Force the next drawn event to be `eventId`, then advance one turn to draw it. */
+  function drawNext(game, eventId) {
+    const pool = EVENTS.filter((e) => game.state.settings.chaosEvents || !e.chaosOnly);
+    const idx = pool.findIndex((e) => e.id === eventId);
+    game.rng = { next: () => (idx + 0.5) / pool.length };
+    game.state.world.roundsElapsed = game.state.world.nextEventAtRound;
+    const id = game.state.currentPlayerId;
+    game.state.phase = 'awaitingEnd';
+    game.state.turn.dice = [1, 1];
+    return act(game, id, 'endTurn');
+  }
+
+  test('Jailbreak frees everyone in jail', () => {
+    const game = setup({ players: 3, settings: { worldEvents: true, worldEventEvery: 1, auctions: false } });
+    player(game, 'p2').inJail = true;
+    player(game, 'p2').jailTurns = 2;
+    drawNext(game, 'jailbreak');
+    assert.equal(player(game, 'p2').inJail, false);
+  });
+
+  test('Rent Reversal makes the owner pay the lander half the rent', () => {
+    const game = withEvent('rent-reversal');
+    own(game, 'p2', 'tel-aviv'); // rent 6
+    const events = landOn(game, 'tel-aviv', 0); // p1 lands on p2's tile
+    assert.equal(findEvent(events, 'rentPaid'), undefined);
+    const reversed = findEvent(events, 'rentReversed');
+    assert.equal(reversed.from, 'p2');
+    assert.equal(reversed.to, 'p1');
+    assert.equal(reversed.amount, 3);
+  });
+
+  test('Property Shuffle swaps two tiles owned by different players', () => {
+    const game = setup({ players: 2, settings: { worldEvents: true, worldEventEvery: 1, chaosEvents: true, auctions: false } });
+    own(game, 'p1', 'tel-aviv');
+    own(game, 'p2', 'rome');
+    drawNext(game, 'property-shuffle');
+    assert.equal(prop(game, 'tel-aviv').ownerId, 'p2');
+    assert.equal(prop(game, 'rome').ownerId, 'p1');
+  });
+
+  test('chaos-only events are not drawn unless chaos events are on', () => {
+    const plain = EVENTS.filter((e) => !e.chaosOnly);
+    const chaos = EVENTS.filter((e) => e.chaosOnly);
+    assert.ok(chaos.length >= 2, 'there are chaos-only events');
+    assert.ok(['rent-reversal', 'property-shuffle'].every((id) => chaos.some((e) => e.id === id)));
+    assert.ok(['utility-surge', 'jailbreak', 'stimulus'].every((id) => plain.some((e) => e.id === id)));
+  });
+});
+
 describe('world events: scheduling', () => {
   test('an event starts on schedule, lasts one round, and never overlaps', () => {
     const game = new Game({ seed: 7, now: () => 1, settings: { worldEvents: true, worldEventEvery: 2, auctions: false } });
@@ -178,19 +230,21 @@ describe('world events: scheduling', () => {
     let active = 0;
     let started = 0;
     let ended = 0;
+    const startedIds = [];
     const forceEndTurn = () => {
       const id = game.state.currentPlayerId;
       game.state.phase = 'awaitingEnd';
       game.state.turn.dice = [1, 1];
       const events = game.dispatch(id, { type: 'endTurn' });
       for (const e of events.events) {
-        if (e.type === 'worldEventStarted') { started++; active++; }
+        if (e.type === 'worldEventStarted') { started++; active++; startedIds.push(e.eventId); }
         if (e.type === 'worldEventEnded') { ended++; active--; }
       }
       assert.ok(active <= 1, 'two events were active at once');
       assert.equal(Boolean(game.state.world.activeEventId), active === 1);
     };
     for (let i = 0; i < 30; i++) forceEndTurn();
+    for (let i = 1; i < startedIds.length; i++) assert.notEqual(startedIds[i], startedIds[i - 1], 'an event repeated back to back');
     assert.ok(started >= 2, `only ${started} events started`);
     assert.ok(ended >= 1, 'no event ever ended');
     assert.ok(game.publicState().world.nextInRounds >= 0);

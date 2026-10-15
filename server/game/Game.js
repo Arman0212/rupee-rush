@@ -140,7 +140,7 @@ class Game {
       stats: Game.#freshStats(),
       devLedger: { bankOut: 0, bankIn: 0 },
       // World events mode: at most one active event, drawn every few rounds.
-      world: { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: settings.worldEventEvery, lastSeatIndex: -1 },
+      world: { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: settings.worldEventEvery, lastSeatIndex: -1, lastEventId: null },
       // Bounties mode: a bounty on dangerous players, and rent totals between pairs.
       bounties: { onPlayer: {}, setsAwarded: {}, rent: {} },
     };
@@ -269,7 +269,8 @@ class Game {
     state.tradeSeq ??= 0;
     state.stats ??= Game.#freshStats();
     state.devLedger ??= { bankOut: 0, bankIn: 0 };
-    state.world ??= { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: state.settings.worldEventEvery || 3, lastSeatIndex: -1 };
+    state.world ??= { activeEventId: null, anchorId: null, roundsElapsed: 0, nextEventAtRound: state.settings.worldEventEvery || 3, lastSeatIndex: -1, lastEventId: null };
+    state.world.lastEventId ??= null;
     state.bounties ??= { onPlayer: {}, setsAwarded: {}, rent: {} };
     state.winnerTeam ??= null;
     game.state = state;
@@ -440,7 +441,20 @@ class Game {
     for (const p of s.players) {
       this.#transfer(BANK, p.id, s.settings.startingCash, 'moneyCollected', { reason: 'startingCash' });
     }
+    if (s.settings.startingCities > 0) this.#dealStartingCities(s.settings.startingCities);
     this.#beginTurn(s.players[0]);
+  }
+
+  /** Deal each player `count` random unowned cities for free (Chaos opening). */
+  #dealStartingCities(count) {
+    const pool = shuffle(this.rng, OWNABLE_TILES.filter((t) => t.type === TILE.CITY).map((t) => t.id));
+    for (const p of this.state.players) {
+      for (let i = 0; i < count && pool.length; i++) {
+        const tileId = pool.pop();
+        this.state.properties[tileId].ownerId = p.id;
+        this.#emit('propertyTransferred', { tileId, from: null, to: p.id, mortgaged: false, reason: 'startingDeal' });
+      }
+    }
   }
 
   #doRemovePlayer(player) {
@@ -526,8 +540,13 @@ class Game {
 
   #startWorldEvent(anchor) {
     const w = this.state.world;
-    const event = EVENTS[randomInt(this.rng, EVENTS.length)];
+    // Chaos-only events only when enabled; never the same event twice in a row.
+    let pool = EVENTS.filter((e) => (this.state.settings.chaosEvents || !e.chaosOnly));
+    const withoutLast = pool.filter((e) => e.id !== w.lastEventId);
+    if (withoutLast.length) pool = withoutLast;
+    const event = pool[randomInt(this.rng, pool.length)];
     w.activeEventId = event.id;
+    w.lastEventId = event.id;
     w.anchorId = anchor.id;
     this.#emit('worldEventStarted', { eventId: event.id, anchorId: anchor.id });
     if (event.onStart) this.#applyEventOnStart(event.onStart);
@@ -546,8 +565,34 @@ class Game {
         const bill = this.#repairBill(p.id, { perHouse: onStart.perHouse, perHotel: onStart.perHotel });
         const amount = Math.min(Math.max(0, p.cash), bill);
         if (amount > 0) this.#transfer(p.id, BANK, amount, 'moneyPaid', meta);
+      } else if (onStart.kind === 'freeFromJail' && p.inJail) {
+        this.#leaveJail(p, 'jailbreak');
       }
     }
+    if (onStart.kind === 'propertyShuffle') this.#shuffleTwoProperties();
+  }
+
+  /** Swap two unbuilt, unmortgaged tiles owned by different live players (Property Shuffle). */
+  #shuffleTwoProperties() {
+    const live = new Set(this.state.players.filter((p) => !p.bankrupt).map((p) => p.id));
+    // A tile can move only if nothing in its set is built (same rule as trading one).
+    const setBuilt = (group) => group && this.#groupProps(group).some((g) => g.buildings > 0 || g.landmark);
+    const owned = OWNABLE_TILES.filter((t) => {
+      const prop = this.state.properties[t.id];
+      return prop.ownerId && live.has(prop.ownerId) && prop.buildings === 0 && !prop.mortgaged && !prop.landmark && !setBuilt(t.group);
+    });
+    if (owned.length < 2) return;
+    const first = owned[randomInt(this.rng, owned.length)];
+    const others = owned.filter((t) => this.state.properties[t.id].ownerId !== this.state.properties[first.id].ownerId);
+    if (!others.length) return;
+    const second = others[randomInt(this.rng, others.length)];
+    const a = this.state.properties[first.id];
+    const b = this.state.properties[second.id];
+    const [ownerA, ownerB] = [a.ownerId, b.ownerId];
+    a.ownerId = ownerB;
+    b.ownerId = ownerA;
+    this.#emit('propertyTransferred', { tileId: first.id, from: ownerA, to: ownerB, mortgaged: false, reason: 'worldEvent' });
+    this.#emit('propertyTransferred', { tileId: second.id, from: ownerB, to: ownerA, mortgaged: false, reason: 'worldEvent' });
   }
 
   /** Modifiers of the event in force right now, or an empty object. */
@@ -801,6 +846,12 @@ class Game {
     // The "nearest utility" card rolls fresh dice for the rent.
     const diceTotal = tile.type === TILE.UTILITY && ctx.utilityMultiplier ? this.#rollDice('utilityCard').total : ctx.diceTotal;
     const amount = this.#rentFor(tile, { ...ctx, diceTotal });
+    // Rent Reversal event: the owner pays the lander half the rent instead.
+    if (this.#eventModifiers().rentReversal) {
+      const reversed = rules.rupees(amount / 2);
+      if (reversed > 0) this.#transfer(owner.id, p.id, reversed, 'rentReversed', { tileId: tile.id });
+      return;
+    }
     const best = this.state.stats.biggestRent;
     if (amount > 0 && (!best || amount > best.amount)) {
       this.state.stats.biggestRent = { amount, from: p.id, to: owner.id, tileId: tile.id, turnNumber: this.state.turnNumber };
