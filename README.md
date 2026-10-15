@@ -17,12 +17,25 @@ lobby, or hand a disconnected player's seat to a bot mid-game. The client is
 plain HTML, CSS and ES modules in `public/`, with no build step. The bare protocol
 test client from Phase 3 still lives at `/debug.html`.
 
+**Game modes.** The lobby has a single mode choice:
+
+- **Classic** — the standard game.
+- **Chaos** — all four optional features on at once: world events (a declarative
+  effect sweeps the board every couple of rounds), bounties and rivalries,
+  landmarks (crown a fully built set), and — with exactly 4 or 6 players — teams.
+  Plus a livelier opening (₹2,000 and two free cities each) and quicker auctions.
+
+Each feature still exists as its own engine flag, so `simulate.js`, `tournament.js`
+and the tests can switch one on at a time; the lobby just bundles them into the two
+modes. Chaos games run about as long as Classic (145 vs 189 turns in the simulator).
+
 ## Checks
 
 ```sh
 npm run validate   # board, cards and rules data
 npm test           # engine and room unit tests (node:test)
 npm run simulate   # random and strategy bots with invariant checks; -- --games 200 for a quick run
+                   #   -- --mode chaos  (or --world-events / --bounties / --landmarks / --teams)
 npm run smoke      # real server + socket.io clients end to end, incl. 1 human vs 3 bots
 npm run ui-check   # headless Chromium (playwright): 3 pages play ~30 turns through
                    # the real UI; screenshots in screenshots/, fails on console errors
@@ -35,6 +48,7 @@ Bots:
 ```sh
 npm run tournament            # 1000 games, random/easy/medium/hard in shuffled seats: win rates with 95% CIs
 npm run tournament -- --lineup medium,hard --games 2000
+npm run tournament -- --mode chaos   # Classic vs Chaos: win rates and game length
 npm run tune -- --quick       # re-tune the hard bot (a few minutes); writes server/bots/params/hard.json
 npm run tune                  # the full run (about half an hour on 8 cores)
 ```

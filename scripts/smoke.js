@@ -254,6 +254,7 @@ async function run() {
     assert.ok(reconnectDone, 'reconnect scenario ran');
 
     await botScenario();
+    await chaosScenario();
 
     // --- Global assertions -----------------------------------------------------------
     for (const c of allClients) {
@@ -313,6 +314,60 @@ async function run() {
     assert.equal(host.state.publicState.properties['tel-aviv'].ownerId, other.playerId);
     assert.deepEqual(host.state.publicState.trades, []);
     step(`trade over sockets: ${other.label} bought Tel Aviv from ${bidder.label} for ₹90`);
+  }
+
+  /** A full Chaos game over sockets: 4 clients in two teams, played to game over. */
+  async function chaosScenario() {
+    const seats = [await newClient('Team1a'), await newClient('Team1b'), await newClient('Team2a'), await newClient('Team2b')];
+    const host = seats[0];
+    let r = await host.call('createRoom', { name: 'Chaos' });
+    assert.ok(r.ok, r.error);
+    tokens.add(r.token);
+    await host.until(() => host.state && host.state.room, 'chaos lobby');
+    assert.ok((await host.call('updateSettings', { settings: { mode: 'chaos' } })).ok);
+    const code = host.state.room.code;
+    for (const c of seats.slice(1)) {
+      r = await c.call('joinRoom', { code });
+      assert.ok(r.ok, r.error);
+      tokens.add(r.token);
+    }
+    await host.until(() => host.state.room.players.length === 4, 'four in the chaos room');
+    // Lower the stakes and shorten auctions so the game ends briskly, keeping every chaos feature on.
+    assert.ok((await host.call('updateSettings', { settings: { startingCash: 600, turnTimerSeconds: 15, auctionSeconds: 5 } })).ok);
+    await host.until(() => host.state.room.settings.teams === true, 'teams auto-on with 4 players');
+    assert.equal(host.state.room.settings.mode, 'chaos');
+    const teams = new Set(host.state.room.players.map((p) => p.team));
+    assert.deepEqual([...teams].sort(), ['A', 'B'], 'two even teams');
+
+    assert.ok((await host.call('startGame')).ok);
+    const meOf = (c) => c.you && c.you.playerId;
+    const actionable = (c) => (c.you && c.you.version === c.state.version ? c.you.legalActions.filter((a) => a.type !== 'cancelTrade') : []);
+    const started = Date.now();
+    const finished = () => host.state.room.status === 'finished';
+    for (let guard = 0; guard < 4000 && !finished(); guard++) {
+      // Whichever seat has something to do acts; decline purchases to stir up auctions.
+      const actor = seats.find((c) => actionable(c).length);
+      if (!actor) { await sleep(60); continue; }
+      const legal = actionable(actor);
+      const ps = actor.state.publicState;
+      const mine = ps.players.find((p) => p.id === meOf(actor));
+      let action;
+      if (legal.some((a) => a.type === 'declineTrade')) action = legal.find((a) => a.type === 'declineTrade');
+      else if (legal.some((a) => a.type === 'pass')) action = { type: 'pass' };
+      else if (legal.some((a) => a.type === 'decline') && Math.random() < 0.25) action = { type: 'decline' };
+      else action = chooseAction(legal, mine.cash < 0);
+      r = await actor.call('action', action);
+      if (!r.ok && /rate limited/.test(r.error)) await sleep(500);
+    }
+    const events = seats.flatMap((c) => c.received('state')).flatMap((st) => st.events);
+    const ps = host.state.publicState;
+    assert.ok(finished(), 'the chaos game reached game over');
+    assert.ok(events.some((e) => e.type === 'worldEventStarted'), 'a world event fired');
+    assert.ok(ps.winnerId, 'a winner');
+    const over = host.received('gameOver').at(-1);
+    assert.ok(over && over.name, 'gameOver broadcast');
+    step(`chaos over sockets: 4 clients in teams played to game over in ${((Date.now() - started) / 1000).toFixed(1)}s (${ps.turnNumber} turns)`);
+    for (const c of seats) c.socket.disconnect();
   }
 
   /** One human against three bots, to game over. */

@@ -73,6 +73,18 @@ A partial settings object, merged into the current settings and passed through
 `sanitizeSettings` (unknown keys dropped, numbers clamped and stepped). Room-only
 settings: `allowBots` (default `true`) and `botChat` (default `true`).
 `maxPlayers` is never set below the number of seated players.
+
+`settings.mode` is `'classic'` or `'chaos'`. When the partial includes `mode`,
+the feature flags are set from it (`modeSettings`): Classic turns off world
+events, bounties, landmarks and teams; Chaos turns them on with the chaos tuning
+(world events every 2 rounds incl. chaos-only events, bounty threshold ₹300,
+landmarks on, auctions 8 s, Vacation jackpot on, ₹2,000 start, 2 free cities each).
+The engine reads the individual flags, not `mode`. In Chaos, teams follow the
+player count (on with exactly 4 or 6 players, off otherwise).
+
+### `setTeam` `{ playerId, team }` and `shuffleTeams` `{}` (host only, lobby, teams on)
+Put a player on team `'A'`, `'B'` or neither (`null`), or deal everyone into two
+even teams at random. Room event: `teamsChanged`.
 ```js
 socket.emit('updateSettings', { settings: { startingCash: 2000, turnTimerSeconds: 60 } }, cb);
 // { ok: true, settings: { ...all settings... } }
@@ -122,6 +134,8 @@ and its own offer for trades).
 |---|---|---|
 | `roll`, `buy`, `decline`, `endTurn`, `payJailFine`, `useJailCard`, `bankrupt` | none | your turn (bankrupt: while in debt) |
 | `build`, `sellHouse`, `mortgage`, `unmortgage` | `tileId` | your turn (sell/mortgage also while in debt) |
+| `buildLandmark`, `sellLandmark` | `tileId` | landmarks mode; your turn (sell also while in debt) |
+| `sendToTeammate` | `toId`, `give` | team mode; to a living teammate, not in an auction or while in debt |
 | `bid` | `amount` | during an auction: ≥ high bid + ₹1, ≤ your cash, not while in debt |
 | `pass` | none | during an auction, unless you hold the high bid |
 | `proposeTrade` | `toId`, `give`, `get` | any time except auctions; not bankrupt or in debt; max 3 open |
@@ -140,9 +154,11 @@ socket.emit('action', { type: 'build', tileId: 'patna' }, cb);
 socket.emit('action', { type: 'proposeTrade', toId: 'b41…', give: { cash: 90 }, get: { tileIds: ['nagpur'] } }, cb);
 ```
 
-### `chat` `{ text }`
+### `chat` `{ text, team? }`
 Works in the lobby and in the game. Text is cleaned and cut to 200 characters;
 empty messages are refused. **Clients must render it as text, never as HTML.**
+With `team: true` in team mode, the message reaches only the sender and their
+teammates and is not kept in the shared history (it carries a `team` field).
 
 ---
 
@@ -183,15 +199,16 @@ Sent privately to each seated socket right after every `state`.
 ```
 
 ### `chat`
-`{ id: 12, playerId, name, text, ts, bot? }`. Bots occasionally post a short line
-(`bot: true`) when they complete a colour set, go bankrupt or win, unless
-`settings.botChat` is off.
+`{ id: 12, playerId, name, text, ts, bot?, team? }`. Bots occasionally post a short
+line (`bot: true`) when they complete a colour set, go bankrupt or win, unless
+`settings.botChat` is off. A `team` field marks a team-only message (team mode).
 
 ### `chatHistory`
 `{ messages: [chat, ...] }` (the last 100), sent to a socket when it joins or reconnects.
 
 ### `gameOver`
 `{ winnerId, name }`, broadcast once, right after the `state` that ends the game.
+In team mode the engine's `gameOver` event also carries `winnerTeam`.
 
 ### `replaced`
 `{ code }`. Another socket reclaimed this seat with the same token. The socket is
@@ -212,6 +229,7 @@ no longer in the room and should not auto-rejoin.
 | `seatJoined` | `playerId, name, bot?` | someone joined the lobby (`bot` is the difficulty for a bot) |
 | `seatLeft` | `playerId, reason: 'left' \| 'kicked' \| 'timeout' \| 'removed'` | a seat was freed (`removed`: a bot) |
 | `seatReplacedByBot` | `playerId, difficulty` | a bot took over a disconnected player's seat |
+| `teamsChanged` | | the host changed team assignments (team mode) |
 | `seatDisconnected` | `playerId` | socket dropped; seat kept |
 | `seatReconnected` | `playerId` | seat reclaimed with its token |
 | `hostChanged` | `playerId` | host was away 60 s mid-game |
@@ -229,6 +247,16 @@ proposer cancels), plus the money events `tradePayment` and `mortgageFee` (10% o
 mortgage value, paid to the bank by whoever receives a mortgaged tile). Open trades
 that stop being valid (a tile changed hands, a player went bankrupt, buildings went
 up in a set, cash ran short) are cancelled automatically with a reason.
+
+Game-mode events (only when the matching mode is on):
+`worldEventStarted { eventId, anchorId }`, `worldEventEnded { eventId }`;
+`bountyPlaced { playerId, value, triggers, reason }`,
+`bountyClaimed { from: null, to, amount, holderId, tileId }` (the bank pays the owner);
+`landmarkBuilt`/`landmarkSold { tileId, group, from, to, amount }`;
+`teammateGift { from, to, amount }` (a fee-free send between teammates);
+`rentReversed { from, to, amount, tileId }` (Rent Reversal: the owner pays the lander).
+`publicState.world` carries `{ activeEvent, nextInRounds }` and `publicState.bounties`
+carries `{ onPlayer, rivalry }` when those modes are on; players carry `team`.
 
 ## Timers
 
