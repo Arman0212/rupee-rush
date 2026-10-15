@@ -64,6 +64,7 @@ export function createHomeScreen({ net, app }) {
     render(list, result.rooms.map((room) => el('li', { className: 'room-row' },
       el('span', { className: 'room-row-main' },
         el('span', { className: 'room-row-host', text: `${room.hostName}'s room` }),
+        room.mode === 'chaos' ? el('span', { className: 'chaos-badge', text: 'Chaos' }) : null,
         el('span', { className: 'muted', text: ` · ${room.players}/${room.maxPlayers} players` })),
       el('button', {
         className: 'btn btn-secondary btn-sm', type: 'button', text: 'Join',

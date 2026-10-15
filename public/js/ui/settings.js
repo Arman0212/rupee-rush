@@ -34,18 +34,16 @@ const GAMEPLAY_RULES = [
   { key: 'auctionSeconds', icon: '⏳', title: 'Auction timer', help: 'Every bid restarts the clock.', options: [5, 10, 15, 20, 30], label: seconds },
 ];
 
-/** Optional game modes, off by default. */
-const GAME_MODES = [
-  { key: 'worldEvents', icon: '🌍', title: 'World events', help: 'A world event sweeps the board every few rounds.' },
-  { key: 'worldEventEvery', icon: '🔁', title: 'Event frequency', help: 'Full rounds between world events.', options: range('worldEventEvery', 1), label: (v) => `${v} rounds` },
-  { key: 'bounties', icon: '🎯', title: 'Bounties & rivalries', help: 'Dangerous players get a bounty on their head.' },
-  { key: 'bountyRentThreshold', icon: '💥', title: 'Bounty rent', help: 'A single rent this big places a bounty.', options: range('bountyRentThreshold', 100), label: money },
-  { key: 'landmarks', icon: '🏛️', title: 'Landmarks', help: 'Crown a fully built set with a landmark.' },
-  { key: 'teams', icon: '🤝', title: 'Team mode', help: 'Two teams share sets and skip each other’s rent. Needs 4 or 6 players.' },
+/** The two lobby modes, shown as big cards. */
+const MODE_CARDS = [
+  { mode: 'classic', icon: '♟️', title: 'Classic', desc: 'The standard game. No surprises.' },
+  { mode: 'chaos', icon: '🎲', title: 'Chaos', desc: 'World events, bounties, landmarks and teams — all on.' },
 ];
+/** Settings the Chaos preset fixes, so they are read-only in Chaos. */
+const CHAOS_LOCKED = new Set(['startingCash', 'auctions', 'auctionSeconds', 'vacationJackpot']);
 
 export function createSettings({ store, net }) {
-  const hosts = { game: $('#settings-game'), rules: $('#settings-rules'), modes: $('#settings-modes') };
+  const hosts = { game: $('#settings-game'), rules: $('#settings-rules'), picker: $('#mode-picker') };
   const note = $('#sec-settings .settings-note');
 
   async function save(key, value) {
@@ -75,15 +73,30 @@ export function createSettings({ store, net }) {
   }
 
   function rows(defs, settings, editable) {
+    const chaos = settings.mode === 'chaos';
     return defs.map((def) => {
       const id = `set-${def.key}`;
-      return el('div', { className: 'setting-row' },
+      const rowEditable = editable && !(chaos && CHAOS_LOCKED.has(def.key));
+      return el('div', { className: `setting-row${rowEditable ? '' : ' is-locked'}` },
         el('span', { className: 'setting-icon', text: def.icon, attrs: { 'aria-hidden': 'true' } }),
         el('div', { className: 'setting-text' },
           el('label', { className: 'setting-title', htmlFor: id, text: def.title }),
-          el('p', { className: 'setting-help', id: `${id}-help`, text: def.help })),
-        el('div', { className: 'setting-control' }, control(def, settings[def.key], editable)));
+          el('p', { className: 'setting-help', id: `${id}-help`, text: chaos && CHAOS_LOCKED.has(def.key) ? `Set by Chaos mode.` : def.help })),
+        el('div', { className: 'setting-control' }, control(def, settings[def.key], rowEditable)));
     });
+  }
+
+  /** The Classic / Chaos picker: two big cards. */
+  function picker(settings, editable) {
+    return MODE_CARDS.map((card) => el('button', {
+      className: `mode-card${settings.mode === card.mode ? ' is-active' : ''} mode-${card.mode}`,
+      type: 'button', disabled: !editable,
+      attrs: { 'aria-pressed': String(settings.mode === card.mode) },
+      on: { click: () => save('mode', card.mode) },
+    },
+    el('span', { className: 'mode-card-icon', text: card.icon, attrs: { 'aria-hidden': 'true' } }),
+    el('span', { className: 'mode-card-title', text: card.title }),
+    el('span', { className: 'mode-card-desc', text: card.desc })));
   }
 
   store.subscribe(
@@ -92,9 +105,9 @@ export function createSettings({ store, net }) {
       if (!v) return;
       note.textContent = v.status !== 'lobby' ? '(locked during the game)' : v.editable ? '' : '(host only)';
       // Don't rebuild under the host's pointer: just refresh the other values.
-      const panels = [hosts.game, hosts.rules, hosts.modes];
+      const panels = [hosts.game, hosts.rules];
       const focused = panels.some((h) => h.contains(document.activeElement));
-      if (focused && hosts.game.dataset.editable === String(v.editable)) {
+      if (focused && hosts.game.dataset.editable === String(v.editable) && hosts.game.dataset.mode === v.settings.mode) {
         for (const input of panels.flatMap((h) => [...h.querySelectorAll('input, select')])) {
           if (input === document.activeElement) continue;
           if (input.type === 'checkbox') input.checked = v.settings[input.name];
@@ -103,9 +116,10 @@ export function createSettings({ store, net }) {
         return;
       }
       hosts.game.dataset.editable = String(v.editable);
+      hosts.game.dataset.mode = v.settings.mode;
+      render(hosts.picker, picker(v.settings, v.editable));
       render(hosts.game, rows(GAME_SETTINGS, v.settings, v.editable));
       render(hosts.rules, rows(GAMEPLAY_RULES, v.settings, v.editable));
-      render(hosts.modes, rows(GAME_MODES, v.settings, v.editable));
     },
   );
 }

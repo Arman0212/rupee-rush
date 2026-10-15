@@ -1,4 +1,4 @@
-import { $, $$, storage } from './dom.js';
+import { $, $$, el, clear, storage } from './dom.js';
 import { rules } from './shared.js';
 import { createNet, statusPill, tokens } from './net.js';
 import { createStore, selectMe } from './store.js';
@@ -213,11 +213,16 @@ store.subscribe(
 
 // Top bar: room chip, leave button, page title.
 store.subscribe(
-  (d) => d.state && { code: d.state.room.code, status: d.state.room.status },
+  (d) => d.state && { code: d.state.room.code, status: d.state.room.status, chaos: d.state.room.settings.mode === 'chaos' },
   (v) => {
     const chip = $('#topbar-room');
     chip.hidden = !v;
-    chip.textContent = v ? `Room ${v.code}` : '';
+    clear(chip);
+    if (v) {
+      chip.append(document.createTextNode(`Room ${v.code}`));
+      if (v.chaos) chip.append(el('span', { className: 'chaos-badge', text: 'Chaos' }));
+    }
+    document.documentElement.setAttribute('data-mode-chaos', String(Boolean(v && v.chaos)));
     $('#leave-btn').hidden = !v;
     document.title = v ? `${rules.GAME_NAME} · ${v.code}` : rules.GAME_NAME;
   },

@@ -169,9 +169,11 @@ function modeSettings(mode) {
       vacationJackpot: true, startingCash: 2000, startingCities: 2,
     };
   }
+  // Classic restores the standard game.
   return {
-    worldEvents: false, chaosEvents: false, bounties: false,
-    landmarks: false, teams: false, startingCities: 0,
+    worldEvents: false, worldEventEvery: 3, chaosEvents: false,
+    bounties: false, bountyRentThreshold: 500, landmarks: false, teams: false,
+    startingCities: 0, startingCash: 1500, auctions: true, auctionSeconds: 10, vacationJackpot: false,
   };
 }
 

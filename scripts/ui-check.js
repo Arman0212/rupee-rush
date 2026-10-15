@@ -150,6 +150,21 @@ async function main() {
     await host.page.waitForFunction(() => document.querySelectorAll('#player-list li').length === 3);
     say('bots: host added a hard bot (badge on every page), then removed it');
 
+    // --- Mode picker: show Chaos, screenshot it, then back to Classic ------------------
+    await showPanel(host.page, 'settings');
+    await host.page.click('.mode-card.mode-chaos');
+    await host.page.waitForSelector('.mode-card.mode-chaos.is-active');
+    await host.page.waitForSelector('#topbar-room .chaos-badge');
+    await host.page.locator('#sec-settings').screenshot({ path: path.join(OUT, `${host.label}-mode-picker.png`) });
+    await bothThemes(host, 'mode-picker');
+    await showPanel(guests[1].page, 'settings');
+    await shot(guests[1], 'mode-picker', { fullPage: true });
+    await host.page.click('.mode-card.mode-classic');
+    await host.page.waitForSelector('.mode-card.mode-classic.is-active');
+    await showPanel(host.page, 'players');
+    await showPanel(guests[1].page, 'players');
+    say('mode picker: Classic / Chaos cards, CHAOS badge in the header');
+
     // --- Start ------------------------------------------------------------------------
     await host.page.click('#lobby-start');
     for (const p of players) await p.page.waitForSelector('body[data-screen="game"]');
@@ -480,8 +495,8 @@ async function modesShowcase(server, code, players, shot) {
   const room = server.manager.get(code);
   const state = room.game.state;
   const ids = state.players.map((p) => p.id);
-  room.settings = { ...room.settings, worldEvents: true, bounties: true, landmarks: true, teams: true };
-  Object.assign(state.settings, { worldEvents: true, bounties: true, landmarks: true, teams: true });
+  room.settings = { ...room.settings, mode: 'chaos', worldEvents: true, bounties: true, landmarks: true, teams: true };
+  Object.assign(state.settings, { mode: 'chaos', worldEvents: true, bounties: true, landmarks: true, teams: true });
   // Teams: split the seats (odd count is fine for a screenshot).
   state.players.forEach((p, i) => { p.team = i % 2 === 0 ? 'A' : 'B'; });
   // A world event in force (anchor on the current player, so ending a turn won't clear it).
@@ -522,12 +537,18 @@ async function modesShowcase(server, code, players, shot) {
   say('modes: world event banner, bounty badge, rivalry, landmark tile and team panel');
 
   // Turn the modes back off so the normal endgame scenario can run.
-  room.settings = { ...room.settings, worldEvents: false, bounties: false, landmarks: false, teams: false };
-  Object.assign(state.settings, { worldEvents: false, bounties: false, landmarks: false, teams: false });
+  room.settings = { ...room.settings, mode: 'classic', worldEvents: false, bounties: false, landmarks: false, teams: false };
+  Object.assign(state.settings, { mode: 'classic', worldEvents: false, bounties: false, landmarks: false, teams: false });
   state.players.forEach((p) => { p.team = null; });
   state.world.activeEventId = null;
   state.bounties = { onPlayer: {}, setsAwarded: {}, rent: {} };
   for (const prop of Object.values(state.properties)) Object.assign(prop, { ownerId: null, buildings: 0, mortgaged: false, landmark: false });
+  // Push the reverted (clean Classic) state to every client before the endgame scenario.
+  const after = players.find((p) => p.name === state.players.find((x) => x.id === state.currentPlayerId).name);
+  await waitIdle(after.page);
+  const back = await after.page.$('#center-actions button[data-action]:enabled');
+  if (back) { await back.click(); await waitIdle(after.page); }
+  await host.page.waitForSelector('#world-banner[hidden]', { timeout: 8000 }).catch(() => {});
 }
 
 async function endgameScenario(server, code, players, shot) {
