@@ -57,7 +57,7 @@ describe('RoomManager', () => {
     const started = manager.createRoom({ socketId: 's3', name: 'Busy' });
     manager.get(started.code).join({ socketId: 's4', name: 'Two' });
     manager.get(started.code).start('s3');
-    assert.deepEqual(manager.listPublic(), [{ code: open.code, hostName: 'Open', players: 1, maxPlayers: 6 }]);
+    assert.deepEqual(manager.listPublic(), [{ code: open.code, hostName: 'Open', players: 1, maxPlayers: 6, mode: 'classic' }]);
   });
 
   test('a room is deleted when its last seat leaves', () => {

@@ -49,6 +49,81 @@ describe('room modes: teams', () => {
   });
 });
 
+describe('room modes: Classic / Chaos picker', () => {
+  test('choosing Chaos turns on the chaos features; Classic turns them off', () => {
+    const { room } = makeRoom();
+    seat(room, 'A', 'B');
+    room.updateSettings('s1', { mode: 'chaos' });
+    const c = room.settings;
+    assert.equal(c.mode, 'chaos');
+    assert.equal(c.worldEvents, true);
+    assert.equal(c.worldEventEvery, 2);
+    assert.equal(c.bounties, true);
+    assert.equal(c.bountyRentThreshold, 300);
+    assert.equal(c.landmarks, true);
+    assert.equal(c.startingCash, 2000);
+    assert.equal(c.startingCities, 2);
+    assert.equal(c.auctionSeconds, 8);
+    room.updateSettings('s1', { mode: 'classic' });
+    assert.equal(room.settings.worldEvents, false);
+    assert.equal(room.settings.bounties, false);
+    assert.equal(room.settings.landmarks, false);
+    assert.equal(room.settings.teams, false);
+  });
+
+  test('general settings stay editable in Chaos', () => {
+    const { room } = makeRoom();
+    seat(room, 'A', 'B');
+    room.updateSettings('s1', { mode: 'chaos' });
+    room.updateSettings('s1', { isPrivate: true, turnTimerSeconds: 60 });
+    assert.equal(room.settings.mode, 'chaos'); // still chaos
+    assert.equal(room.settings.isPrivate, true);
+    assert.equal(room.settings.turnTimerSeconds, 60);
+    assert.equal(room.settings.startingCash, 2000); // chaos value preserved
+  });
+
+  test('Chaos turns teams on with 4 players and off otherwise', () => {
+    const { room } = makeRoom();
+    seat(room, 'A', 'B');
+    room.updateSettings('s1', { mode: 'chaos' });
+    assert.equal(room.settings.teams, false); // free-for-all with 2
+    room.join({ socketId: 's3', name: 'C' });
+    assert.equal(room.settings.teams, false); // 3 players
+    room.join({ socketId: 's4', name: 'D' });
+    assert.equal(room.settings.teams, true); // 4 players → teams
+    assert.deepEqual(teamCounts(room), { A: 2, B: 2, none: 0 });
+    room.join({ socketId: 's5', name: 'E' });
+    assert.equal(room.settings.teams, false); // 5 → free-for-all again
+    assert.deepEqual(teamCounts(room), { A: 0, B: 0, none: 5 });
+  });
+
+  test('the public listing marks Chaos rooms', () => {
+    const { room } = makeRoom();
+    seat(room, 'A');
+    room.updateSettings('s1', { mode: 'chaos' });
+    assert.equal(room.listing().mode, 'chaos');
+  });
+});
+
+describe('room modes: team-only chat', () => {
+  test('a team message reaches only the sender and their teammates', () => {
+    const { room, transport } = makeRoom();
+    seat(room, 'A', 'B', 'C', 'D');
+    room.updateSettings('s1', { mode: 'chaos' });
+    room.start('s1');
+    const bySocket = {};
+    for (const p of room.publicRoom().players) bySocket[p.id] = p.team;
+    const myTeam = room.game.state.players.find((p) => p.id === room.publicRoom().players[0].id).team;
+    transport.messages.length = 0;
+    room.chat('s1', 'teammates only', true);
+    const got = transport.messages.filter((m) => m.event === 'chat');
+    // Every recipient is on the sender's team; the message is marked team.
+    assert.ok(got.length >= 1);
+    assert.ok(got.every((m) => m.payload.team === myTeam));
+    assert.ok(!transport.received('s1', 'chatHistory').some((h) => (h.messages || []).some((msg) => msg.text === 'teammates only')));
+  });
+});
+
 describe('room modes: optional settings reach the game', () => {
   test('world events, bounties and landmarks pass through to the engine and publicState', () => {
     const { room, transport } = makeRoom();

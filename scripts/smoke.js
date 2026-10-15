@@ -23,7 +23,7 @@ const { PLAYER_COLORS, GAME_NAME } = require('../shared/rules');
 
 const TURN_CAP = 400;
 const WAIT_MS = 5000;
-const WATCHDOG_MS = 240_000;
+const WATCHDOG_MS = 360_000;
 /** Bots normally think for 0.6-1.5s; here they're quick so a whole game fits in the run. */
 const BOT_DELAY = { normal: [5, 15], auction: [3, 8] };
 

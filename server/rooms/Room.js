@@ -30,7 +30,7 @@
 
 const crypto = require('node:crypto');
 const { Game, PHASE } = require('../game/Game');
-const { ROOM, PLAYER_COLORS, sanitizeSettings } = require('../../shared/rules');
+const { ROOM, PLAYER_COLORS, sanitizeSettings, modeSettings } = require('../../shared/rules');
 const { BOARD, TILE, getTileById } = require('../../shared/board');
 const { DECKS, getCard } = require('../../shared/cards');
 const { RateLimiter } = require('../net/rateLimit');
@@ -148,6 +148,7 @@ class Room {
     if (!this.hostId) this.hostId = newSeat.id;
     this.transport.attach(this.code, socketId);
     this.#sendChatHistory(socketId);
+    this.#syncModeTeams();
     this.#broadcast([this.#roomEvent('seatJoined', { playerId: newSeat.id, name: newSeat.name })]);
     return ok({ code: this.code, playerId: newSeat.id, token: newSeat.token, reconnected: false });
   }
@@ -184,6 +185,7 @@ class Room {
     if (!seat) return fail('not in this room');
     const events = this.status === STATUS.PLAYING ? this.game.removePlayer(seat.id).events : [];
     this.#removeSeat(seat, 'left');
+    this.#syncModeTeams();
     this.#afterChange([...events, this.#roomEvent('seatLeft', { playerId: seat.id, reason: 'left' })]);
     return ok();
   }
@@ -207,7 +209,9 @@ class Room {
   updateSettings(socketId, partial) {
     const error = this.#requireHost(socketId, STATUS.LOBBY);
     if (error) return fail(error);
-    const next = sanitizeSettings({ ...this.settings, ...partial });
+    let next = sanitizeSettings({ ...this.settings, ...partial });
+    // The mode picks the feature flags; general settings (players, privacy, timer…) stay.
+    if ('mode' in partial) next = sanitizeSettings({ ...next, ...modeSettings(next.mode) });
     // Never drop the limit below the players already seated.
     next.maxPlayers = Math.max(next.maxPlayers, this.#seats.size);
     const teamsJustOn = next.teams && !this.settings.teams;
@@ -220,11 +224,29 @@ class Room {
         events.push(this.#roomEvent('seatLeft', { playerId: seat.id, reason: 'removed' }));
       }
     }
-    // Keep teams sensible: hand out even teams when the mode turns on, clear them when it turns off.
-    if (teamsJustOn) this.#assignTeams();
+    // Keep teams sensible. In Chaos they follow the player count; otherwise they
+    // follow the (test-only) teams flag directly.
+    if (next.mode === 'chaos') this.#syncModeTeams();
+    else if (teamsJustOn) this.#assignTeams();
     else if (!next.teams) for (const seat of this.#seats.values()) seat.team = null;
     this.#broadcast(events);
     return ok({ settings: this.settings });
+  }
+
+  /**
+   * In Chaos, teams are on with exactly 4 or 6 players and off otherwise. New
+   * (unassigned) seats trigger a fresh even deal; a host's own even split is
+   * left alone. No effect outside Chaos or outside the lobby.
+   */
+  #syncModeTeams() {
+    if (this.status !== STATUS.LOBBY || this.settings.mode !== 'chaos') return;
+    const want = this.#seats.size === 4 || this.#seats.size === 6;
+    this.settings.teams = want;
+    if (want) {
+      if ([...this.#seats.values()].some((s) => !s.team)) this.#assignTeams();
+    } else {
+      for (const s of this.#seats.values()) s.team = null;
+    }
   }
 
   /** Host only, in the lobby, teams on: put a player on team 'A', 'B' or neither (null). */
@@ -279,6 +301,7 @@ class Room {
       events = this.game.removePlayer(target.id).events;
     }
     this.#removeSeat(target, 'kicked');
+    this.#syncModeTeams();
     this.#afterChange([...events, this.#roomEvent('seatLeft', { playerId: target.id, reason: 'kicked' })]);
     return ok();
   }
@@ -308,6 +331,7 @@ class Room {
       team: null,
     };
     this.#seats.set(id, seat);
+    this.#syncModeTeams();
     this.#broadcast([this.#roomEvent('seatJoined', { playerId: id, name: seat.name, bot: difficulty })]);
     return ok({ playerId: id });
   }
@@ -319,6 +343,7 @@ class Room {
     const seat = this.#seats.get(playerId);
     if (!seat || !seat.bot) return fail('no such bot');
     this.#removeSeat(seat, 'removed');
+    this.#syncModeTeams();
     this.#broadcast([this.#roomEvent('seatLeft', { playerId, reason: 'removed' })]);
     return ok();
   }
@@ -678,16 +703,24 @@ class Room {
   // Chat
   // =========================================================================
 
-  chat(socketId, raw) {
+  chat(socketId, raw, teamOnly = false) {
     const seat = this.#seatBySocket(socketId);
     if (!seat) return fail('not in this room');
     const text = cleanText(raw, ROOM.chatMaxLength);
     if (!text) return fail('empty message');
     if (!this.#chatLimiter.take(seat.id)) return fail('slow down: at most 5 messages every 5 seconds');
-    const message = { id: ++this.chatSeq, playerId: seat.id, name: seat.name, text, ts: this.clock.now() };
-    this.chatLog.push(message);
-    if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
-    this.transport.toRoom(this.code, 'chat', message);
+    // Team-only chat (team mode) reaches the sender and their teammates, nobody else.
+    const team = teamOnly && this.settings.teams ? seat.team : null;
+    const message = { id: ++this.chatSeq, playerId: seat.id, name: seat.name, text, ts: this.clock.now(), ...(team ? { team } : {}) };
+    if (team) {
+      for (const s of this.#seats.values()) {
+        if (s.socketId && s.team === team) this.transport.toSocket(s.socketId, 'chat', message);
+      }
+    } else {
+      this.chatLog.push(message);
+      if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
+      this.transport.toRoom(this.code, 'chat', message);
+    }
     return ok();
   }
 
@@ -723,7 +756,7 @@ class Room {
   /** Summary for the public room list. */
   listing() {
     const host = this.#seats.get(this.hostId);
-    return { code: this.code, hostName: host ? host.name : null, players: this.#seats.size, maxPlayers: this.settings.maxPlayers };
+    return { code: this.code, hostName: host ? host.name : null, players: this.#seats.size, maxPlayers: this.settings.maxPlayers, mode: this.settings.mode };
   }
 
   get isPublicLobby() {

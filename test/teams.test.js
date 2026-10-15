@@ -100,6 +100,19 @@ describe('teams: send to teammate', () => {
     assert.equal(reject(game, 'p1', 'sendToTeammate', { toId: 'p3', give: { tileIds: ['rome'] } }), 'you can only send to a teammate');
   });
 
+  test('sending is refused during an auction or while the sender is in debt', () => {
+    const debt = teamGame();
+    own(debt, 'p1', 'rome');
+    inDebt(debt, 'p1', 50);
+    assert.equal(reject(debt, 'p1', 'sendToTeammate', { toId: 'p2', give: { cash: 10 } }), 'clear your debt first');
+
+    const auction = teamGame({ settings: { auctions: true } });
+    own(auction, 'p1', 'rome');
+    auction.state.phase = 'auction';
+    auction.state.auction = { tileId: 'venice', highBid: 0, highBidderId: null, bidders: ['p1', 'p2', 'p3', 'p4'], startedBy: 'p1' };
+    assert.equal(reject(auction, 'p1', 'sendToTeammate', { toId: 'p2', give: { cash: 10 } }), 'not while an auction is running');
+  });
+
   test('sending is refused when the mode is off', () => {
     const game = new Game({ settings: { teams: false, auctions: false }, seed: 1, now: () => 1 });
     for (const id of ['p1', 'p2']) game.addPlayer({ id, name: id });

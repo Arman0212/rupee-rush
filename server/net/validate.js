@@ -91,7 +91,7 @@ const SCHEMAS = Object.freeze({
     give: optional(offer()),
     get: optional(offer()),
   },
-  chat: { text: str({ max: 2000 }) },
+  chat: { text: str({ max: 2000 }), team: optional(bool()) },
 });
 
 /** Validate `payload` against `schema`. A missing payload counts as {}. */

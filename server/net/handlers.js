@@ -115,7 +115,7 @@ function attachHandlers(io, manager, { log = console, now = Date.now } = {}) {
     on('startGame', 'other', inRoom((room) => room.start(socket.id)));
     on('playAgain', 'other', inRoom((room) => room.playAgain(socket.id)));
     on('action', 'action', inRoom((room, action) => room.action(socket.id, action)));
-    on('chat', 'other', inRoom((room, { text }) => room.chat(socket.id, text)));
+    on('chat', 'other', inRoom((room, { text, team }) => room.chat(socket.id, text, team === true)));
 
     socket.on('disconnect', () => {
       try {
